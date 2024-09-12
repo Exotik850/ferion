@@ -1,0 +1,11 @@
+[package]
+name = "ferion"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bytemuck = "1.18.0"
+chrono = { version = "0.4.38", default-features = true }
+num-bigint = "0.4.6"
+# const-slice = "0.1.0"
+# smallvec = "1.13.2"
