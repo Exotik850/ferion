@@ -45,6 +45,18 @@ pub enum RionFieldType {
     Tiny(LeadByte),
 }
 
+impl From<ShortRionType> for RionFieldType {
+    fn from(value: ShortRionType) -> Self {
+        RionFieldType::Short(value)
+    }
+}
+
+impl From<NormalRionType> for RionFieldType {
+    fn from(value: NormalRionType) -> Self {
+        RionFieldType::Normal(value)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Copy, Eq, Hash)]
 pub enum ShortRionType {
     Int64Positive,
