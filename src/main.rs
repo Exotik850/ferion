@@ -1,5 +1,3 @@
-use std::io::Cursor;
-
 use ferion::*;
 fn main() -> Result<(), &'static str> {
     // Create a sample RION object
@@ -30,6 +28,9 @@ fn main() -> Result<(), &'static str> {
 
     let decoded = RionField::from_slice(&encoded).unwrap();
     println!("Decoded: {:?}", decoded);
+
+    let obj: RionObject = decoded.try_into().unwrap();
+    println!("Final Object: {:?}", obj);
     // Decode the object
     // let decoded = RionObject::decode(&encoded)?;
     // println!("Decoded: {:?}", decoded);

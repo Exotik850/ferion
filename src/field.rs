@@ -80,6 +80,10 @@ impl ShortField<'_> {
             _ => None,
         }
     }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.data
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -99,18 +103,21 @@ impl NormalField<'_> {
         if length_length > 15 {
             return Err("Length too large for normal field".into());
         }
-
+        println!("Length length: {}", length_length);
         buffer.resize(length_length, 0);
         buf.read_exact(&mut buffer)?;
         // The next length_length bytes (0..15) are the number of bytes (as a number) in the data
 
+        println!("Buffer: {:?}", buffer);
         let data_len = BigUint::from_bytes_be(&buffer);
         let data_len: usize = data_len
-            .try_into()
-            .map_err(|_| "Data too large for this system!")?;
-
-        buffer.resize(data_len, 0);
-        buf.read_exact(&mut buffer)?;
+        .try_into()
+        .map_err(|_| "Data too large for this system!")?;
+      println!("DataLen: {data_len}", );
+      
+      buffer.resize(data_len, 0);
+      buf.read_exact(&mut buffer)?;
+      println!("Buffer: {:?}", buffer);
         Ok(NormalField {
             field_type,
             length_length: length_length as u8,
@@ -149,6 +156,10 @@ impl NormalField<'_> {
             _ => None,
         }
     }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.data
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Hash, Eq)]
@@ -160,6 +171,26 @@ pub enum RionField<'a> {
 }
 
 impl<'a> RionField<'a> {
+    pub fn key(key: &'a [u8]) -> Self {
+        if key.len() < 16 {
+            RionField::Short(ShortField {
+                field_type: ShortRionType::Key,
+                data_len: key.len() as u8,
+                data: key.into(),
+            })
+        } else {
+            RionField::Normal(NormalField {
+                field_type: NormalRionType::Key,
+                length_length: key.len().div_ceil(64) as u8 & 0x0F,
+                data: key.into(),
+            })
+        }
+    }
+
+    pub fn key_str(key: &'a str) -> Self {
+        Self::key(key.as_bytes())
+    }
+
     pub fn encode(&self, data: &mut impl std::io::Write) -> std::io::Result<()> {
         match self {
             RionField::Tiny(lead) => {
@@ -225,6 +256,22 @@ impl<'a> RionField<'a> {
         match self {
             RionField::Short(short) => short.as_str(),
             RionField::Normal(normal) => normal.as_str(),
+            _ => None,
+        }
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        match self {
+            RionField::Short(short) => short.as_bytes(),
+            RionField::Normal(normal) => normal.as_bytes(),
+            _ => &[],
+        }
+    }
+
+    pub fn to_data(self) -> Option<Cow<'a, [u8]>> {
+        match self {
+            RionField::Short(short) => Some(short.data),
+            RionField::Normal(normal) => Some(normal.data),
             _ => None,
         }
     }
@@ -472,10 +519,10 @@ impl TryFrom<u8> for RionFieldType {
     fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
         let type_bits = value & 0xF0;
         match type_bits {
-            0x10 => Ok(RionFieldType::Tiny(LeadByte(value))),
-            0x00..=0x70 => Ok(RionFieldType::Short(ShortRionType::try_from(type_bits)?)),
-            0x80..=0xE0 => Ok(RionFieldType::Normal(NormalRionType::try_from(type_bits)?)),
             0xF0 => Ok(RionFieldType::Extended),
+            0x10 => Ok(RionFieldType::Tiny(LeadByte(value))),
+            0x80..=0xC0 => Ok(RionFieldType::Normal(NormalRionType::try_from(type_bits)?)),
+            0x00..=0x70 | 0xD0 => Ok(RionFieldType::Short(ShortRionType::try_from(type_bits)?)),
             _ => Err("Invalid field type"),
         }
     }

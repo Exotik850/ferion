@@ -3,7 +3,7 @@ use std::error::Error;
 use std::{borrow::Cow, io::Cursor};
 mod field;
 pub use field::RionField;
-use field::{NormalRionType, RionFieldType};
+use field::NormalRionType;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 // Struct to represent a RION field
@@ -15,7 +15,7 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 // Struct to represent a RION object
 #[derive(Debug, Clone, PartialEq)]
 pub struct RionObject<'a> {
-    pub fields: HashMap<RionField<'a>, RionField<'a>>,
+    pub fields: HashMap<Cow<'a, [u8]>, RionField<'a>>,
 }
 
 impl<'a> Default for RionObject<'a> {
@@ -33,8 +33,13 @@ impl<'a> RionObject<'a> {
     }
 
     // Add a field to the RION object
-    pub fn add_field(&mut self, key: impl Into<RionField<'a>>, field: impl Into<RionField<'a>>) {
+    pub fn add_field_bytes(&mut self, key: &'a [u8], field: impl Into<RionField<'a>>)
+    {
         self.fields.insert(key.into(), field.into());
+    }
+
+    pub fn add_field(&mut self, key: &'a str, field: impl Into<RionField<'a>>) {
+        self.add_field_bytes(key.as_bytes(), field);
     }
 
     // Encode the RION object to its binary representation
@@ -42,7 +47,8 @@ impl<'a> RionObject<'a> {
         let mut content = Vec::new();
         for (key, field) in &self.fields {
             // Encode key
-            key.encode(&mut content).unwrap();
+            let key_field = RionField::key(key);
+            key_field.encode(&mut content).unwrap();
             // Encode field
             field.encode(&mut content).unwrap();
         }
@@ -85,7 +91,7 @@ impl<'a> TryFrom<RionField<'a>> for RionObject<'a> {
                 return Err("Invalid key field".into());
             }
             let field = RionField::read_from(&mut cursor)?;
-            fields.insert(key, field);
+            fields.insert(key.to_data().unwrap(), field);
         }
         Ok(RionObject { fields })
     }
