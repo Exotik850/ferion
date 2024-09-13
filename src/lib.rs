@@ -29,6 +29,25 @@ impl<'a> Default for RionObject<'a> {
     }
 }
 
+fn get_lead_byte(data: &[u8]) -> Result<(LeadByte, &[u8])> {
+    let Some(lead) = data.get(0) else {
+        return Err("Data is empty".into());
+    };
+    Ok((LeadByte::try_from(*lead)?, &data[1..]))
+}
+
+/// Get the header of a RION object
+/// Returns the lead byte, the length of the data, and the remaining data
+fn get_header(data: &[u8]) -> Result<(LeadByte, usize, &[u8])> {
+    let (lead, rest) = get_lead_byte(data)?;
+    let length_length = lead.length() as usize;
+    let length = BigUint::from_bytes_be(&rest[..length_length]);
+    let data_len: usize = length
+        .try_into()
+        .map_err(|_| "Data too large for this system!")?;
+    Ok((lead, data_len, &rest[length_length..]))
+}
+
 impl<'a> RionObject<'a> {
     // Create a new RION object
     pub fn new() -> Self {
@@ -38,20 +57,10 @@ impl<'a> RionObject<'a> {
     }
 
     pub fn from_slice(data: &'a [u8]) -> Result<Self> {
-        if data.is_empty() {
-            return Ok(RionObject::new());
-        }
-
-        let lead = LeadByte::try_from(data[0])?;
-        if lead.field_type() != RionFieldType::Normal(NormalRionType::Object) {
-            return Err("Expected an object".into());
-        }
-        let length_length = lead.length();
-        let length = BigUint::from_bytes_be(&data[1..1 + length_length as usize]);
-        let data_len: usize = length
-            .try_into()
-            .map_err(|_| "Data too large for this system!")?;
-        let mut data = &data[1 + length_length as usize..];
+        let (lead, data_len, mut data) = get_header(data)?;
+        let RionFieldType::Normal(NormalRionType::Object) = lead.field_type() else {
+            return Err("Expected a RION object".into());
+        };
         let total = data.len();
         let mut fields = HashMap::new();
         while total - data.len() < data_len {

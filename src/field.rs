@@ -1,8 +1,8 @@
-use crate::Result;
+use crate::{get_lead_byte, Result};
 use chrono::{DateTime, Datelike, Timelike, Utc};
 use core::str;
 use num_bigint::BigUint;
-use std::borrow::Cow;
+use std::{borrow::Cow, error::Error};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct LeadByte(pub(crate) u8); // (field type, length)
@@ -34,7 +34,7 @@ impl LeadByte {
 }
 
 impl TryFrom<u8> for LeadByte {
-    type Error = &'static str;
+    type Error = Box<dyn Error>;
     fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
         RionFieldType::try_from(value)?;
         Ok(LeadByte(value))
@@ -67,7 +67,11 @@ impl<'a> ShortField<'a> {
         })
     }
 
-    pub fn parse(input: &'a [u8], data_len: usize, field_type: ShortRionType) -> Result<(Self, &'a [u8])> {
+    pub fn parse(
+        input: &'a [u8],
+        data_len: usize,
+        field_type: ShortRionType,
+    ) -> Result<(Self, &'a [u8])> {
         if data_len > 15 {
             return Err("Data too large for short field".into());
         }
@@ -144,7 +148,11 @@ impl<'a> NormalField<'a> {
         Self::read_with_lead(buffer, field_type, length_length, buf)
     }
 
-    pub fn parse(input: &'a [u8], length_length: usize, field_type: NormalRionType) -> Result<(Self, &'a [u8])> {
+    pub fn parse(
+        input: &'a [u8],
+        length_length: usize,
+        field_type: NormalRionType,
+    ) -> Result<(Self, &'a [u8])> {
         if length_length > 15 {
             return Err("Length too large for normal field".into());
         }
@@ -246,20 +254,18 @@ impl<'a> RionField<'a> {
     }
 
     pub fn parse(data: &'a [u8]) -> Result<(RionField<'_>, &'a [u8])> {
-        if data.is_empty() {
-            return Err("Data is empty".into());
-        }
-        let lead = LeadByte::try_from(data[0])?;
+        let (lead, rest) = get_lead_byte(data)?;
+        let length = lead.length() as usize;
         let (parsed, rest) = match lead.field_type() {
             RionFieldType::Short(short) => {
-                let (short, rest) = ShortField::parse(&data[1..], lead.length() as usize, short)?;
+                let (short, rest) = ShortField::parse(rest, length, short)?;
                 (RionField::Short(short), rest)
-            },
+            }
             RionFieldType::Normal(normal) => {
-                let (normal, rest) = NormalField::parse(&data[1..], lead.length() as usize, normal)?;
+                let (normal, rest) = NormalField::parse(rest, length, normal)?;
                 (RionField::Normal(normal), rest)
-            },
-            RionFieldType::Tiny(lead) => (RionField::Tiny(lead), &data[1..]),
+            }
+            RionFieldType::Tiny(lead) => (RionField::Tiny(lead), rest),
             RionFieldType::Extended => todo!(),
         };
         Ok((parsed, rest))
