@@ -149,7 +149,7 @@ mod rion_object {
 }
 
 mod error_handling {
-    use field::{NormalField, ShortField, ShortRionType};
+    use field::{NormalField, NormalRionType, ShortField, ShortRionType};
 
     use super::*;
 
