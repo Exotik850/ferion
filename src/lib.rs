@@ -2,8 +2,11 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::{borrow::Cow, io::Cursor};
 mod field;
+
+#[cfg(test)]
+mod test;
 pub use field::RionField;
-use field::NormalRionType;
+use field::{NormalField, NormalRionType};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 // Struct to represent a RION field
@@ -33,8 +36,7 @@ impl<'a> RionObject<'a> {
     }
 
     // Add a field to the RION object
-    pub fn add_field_bytes(&mut self, key: &'a [u8], field: impl Into<RionField<'a>>)
-    {
+    pub fn add_field_bytes(&mut self, key: &'a [u8], field: impl Into<RionField<'a>>) {
         self.fields.insert(key.into(), field.into());
     }
 
@@ -94,5 +96,21 @@ impl<'a> TryFrom<RionField<'a>> for RionObject<'a> {
             fields.insert(key.to_data().unwrap(), field);
         }
         Ok(RionObject { fields })
+    }
+}
+
+impl From<RionObject<'_>> for RionField<'_> {
+    fn from(obj: RionObject) -> Self {
+        let mut content = Vec::new();
+        for (key, field) in &obj.fields {
+            let key_field = RionField::key(key);
+            key_field.encode(&mut content).unwrap();
+            field.encode(&mut content).unwrap();
+        }
+        RionField::Normal(NormalField {
+            field_type: NormalRionType::Object,
+            length_length: content.len().div_ceil(64) as u8,
+            data: content.into(),
+        })
     }
 }

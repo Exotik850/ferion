@@ -5,7 +5,7 @@ use num_bigint::BigUint;
 use std::borrow::Cow;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub struct LeadByte(u8); // (field type, length)
+pub struct LeadByte(pub(crate) u8); // (field type, length)
 
 impl LeadByte {
     pub fn from_type(field_type: RionFieldType, length: u8) -> Self {
@@ -75,8 +75,7 @@ impl ShortField<'_> {
 
     pub fn as_str(&self) -> Option<&str> {
         match self.field_type {
-            ShortRionType::UTF8 => unsafe { Some(str::from_utf8_unchecked(&self.data)) },
-            ShortRionType::Key => std::str::from_utf8(&self.data).ok(),
+            ShortRionType::Key | ShortRionType::UTF8 => std::str::from_utf8(&self.data).ok(),
             _ => None,
         }
     }
@@ -103,21 +102,15 @@ impl NormalField<'_> {
         if length_length > 15 {
             return Err("Length too large for normal field".into());
         }
-        println!("Length length: {}", length_length);
         buffer.resize(length_length, 0);
         buf.read_exact(&mut buffer)?;
         // The next length_length bytes (0..15) are the number of bytes (as a number) in the data
-
-        println!("Buffer: {:?}", buffer);
         let data_len = BigUint::from_bytes_be(&buffer);
         let data_len: usize = data_len
-        .try_into()
-        .map_err(|_| "Data too large for this system!")?;
-      println!("DataLen: {data_len}", );
-      
-      buffer.resize(data_len, 0);
-      buf.read_exact(&mut buffer)?;
-      println!("Buffer: {:?}", buffer);
+            .try_into()
+            .map_err(|_| "Data too large for this system!")?;
+        buffer.resize(data_len, 0);
+        buf.read_exact(&mut buffer)?;
         Ok(NormalField {
             field_type,
             length_length: length_length as u8,
@@ -151,8 +144,7 @@ impl NormalField<'_> {
 
     pub fn as_str(&self) -> Option<&str> {
         match self.field_type {
-            NormalRionType::UTF8 => unsafe { Some(str::from_utf8_unchecked(&self.data)) },
-            NormalRionType::Key => std::str::from_utf8(&self.data).ok(),
+            NormalRionType::Key | NormalRionType::UTF8 => std::str::from_utf8(&self.data).ok(),
             _ => None,
         }
     }
@@ -225,11 +217,9 @@ impl<'a> RionField<'a> {
         match lead_byte.field_type() {
             RionFieldType::Tiny(lead) => Ok(RionField::Tiny(lead)),
             RionFieldType::Short(short) => {
-                println!("Short encoding");
                 ShortField::read_with_lead(buffer, short, data_len, buf).map(RionField::Short)
             }
             RionFieldType::Normal(normal) => {
-                println!("Normal encoding");
                 NormalField::read_with_lead(buffer, normal, data_len, buf).map(RionField::Normal)
             }
             RionFieldType::Extended => unimplemented!(),

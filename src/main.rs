@@ -29,15 +29,15 @@ fn main() -> Result<(), &'static str> {
     let decoded = RionField::from_slice(&encoded).unwrap();
     println!("Decoded: {:?}", decoded);
 
-    let obj: RionObject = decoded.try_into().unwrap();
+    let decoded_obj: RionObject = decoded.try_into().unwrap();
     println!("Final Object: {:?}", obj);
     // Decode the object
     // let decoded = RionObject::decode(&encoded)?;
     // println!("Decoded: {:?}", decoded);
 
     // Verify that the decoded object matches the original
-    // assert_eq!(obj, decoded);
-    // println!("Encoding and decoding successful!");
+    assert_eq!(obj, decoded_obj);
+    println!("Encoding and decoding successful!");
 
     Ok(())
 }
