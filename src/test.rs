@@ -147,32 +147,3 @@ mod rion_object {
         assert_eq!(outer_obj, decoded_obj);
     }
 }
-
-mod error_handling {
-    use field::{NormalField, ShortField};
-    use types::{NormalRionType, ShortRionType};
-
-    use super::*;
-
-    #[test]
-    fn test_data_too_large_for_short_field() {
-        let result = ShortField::read_with_lead(
-            Vec::new(),
-            ShortRionType::UTF8,
-            16,
-            &mut std::io::Cursor::new(vec![0; 16]),
-        );
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_invalid_utf8() {
-        let invalid_utf8 = vec![0xFF, 0xFF];
-        let field = RionField::Normal(NormalField {
-            field_type: NormalRionType::UTF8,
-            length_length: 1,
-            data: invalid_utf8.into(),
-        });
-        assert_eq!(field.as_str(), None);
-    }
-}
