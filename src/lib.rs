@@ -8,8 +8,8 @@ pub use object::RionObject;
 #[cfg(test)]
 mod test;
 pub use field::RionField;
-use field::{LeadByte};
 use num_bigint::BigUint;
+use types::LeadByte;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -31,4 +31,3 @@ fn get_normal_header(data: &[u8]) -> Result<(LeadByte, usize, &[u8])> {
         .map_err(|_| "Data too large for this system!")?;
     Ok((lead, data_len, &rest[length_length..]))
 }
-

@@ -2,7 +2,7 @@ use super::*;
 use chrono::Utc;
 
 mod rion_field {
-    use field::LeadByte;
+    use types::LeadByte;
 
     use super::*;
 
@@ -149,7 +149,8 @@ mod rion_object {
 }
 
 mod error_handling {
-    use field::{NormalField, NormalRionType, ShortField, ShortRionType};
+    use field::{NormalField, ShortField};
+    use types::{NormalRionType, ShortRionType};
 
     use super::*;
 
