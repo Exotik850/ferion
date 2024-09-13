@@ -116,8 +116,8 @@ mod rion_object {
         obj.add_field("is_student", true);
 
         let encoded = obj.encode();
-        let decoded = RionField::from_slice(&encoded).unwrap();
-        let decoded_obj: RionObject = decoded.try_into().unwrap();
+        // let decoded = RionField::from_slice(&encoded).unwrap();
+        let decoded_obj = RionObject::from_slice(&encoded).unwrap();
 
         assert_eq!(obj, decoded_obj);
     }
@@ -126,8 +126,8 @@ mod rion_object {
     fn test_empty_object() {
         let obj = RionObject::new();
         let encoded = obj.encode();
-        let decoded = RionField::from_slice(&encoded).unwrap();
-        let decoded_obj: RionObject = decoded.try_into().unwrap();
+        // let decoded = RionField::from_slice(&encoded).unwrap();
+        let decoded_obj = RionObject::from_slice(&encoded).unwrap();
         assert_eq!(obj, decoded_obj);
     }
 
@@ -141,8 +141,8 @@ mod rion_object {
         outer_obj.add_field("nested", inner_obj);
 
         let encoded = outer_obj.encode();
-        let decoded = RionField::from_slice(&encoded).unwrap();
-        let decoded_obj: RionObject = decoded.try_into().unwrap();
+        // let decoded = RionField::from_slice(&encoded).unwrap();
+        let decoded_obj = RionObject::from_slice(&encoded).unwrap();
 
         assert_eq!(outer_obj, decoded_obj);
     }

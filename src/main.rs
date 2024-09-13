@@ -26,10 +26,12 @@ fn main() -> Result<(), &'static str> {
     let encoded = obj.encode();
     println!("Encoded: {:?}", encoded);
 
-    let decoded = RionField::from_slice(&encoded).unwrap();
-    println!("Decoded: {:?}", decoded);
+    // let decoded = RionField::from_slice(&encoded).unwrap();
+    // let (decoded, rest) = RionField::parse(&encoded).unwrap();
+    // println!("Decoded: {:?}", decoded);
+    // assert!(rest.is_empty());
 
-    let decoded_obj: RionObject = decoded.try_into().unwrap();
+    let decoded_obj = RionObject::from_slice(&encoded).unwrap();
     println!("Final Object: {:?}", obj);
     // Decode the object
     // let decoded = RionObject::decode(&encoded)?;

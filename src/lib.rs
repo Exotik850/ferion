@@ -6,7 +6,8 @@ mod field;
 #[cfg(test)]
 mod test;
 pub use field::RionField;
-use field::{NormalField, NormalRionType};
+use field::{LeadByte, NormalField, NormalRionType, RionFieldType};
+use num_bigint::BigUint;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 // Struct to represent a RION field
@@ -18,6 +19,7 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 // Struct to represent a RION object
 #[derive(Debug, Clone, PartialEq)]
 pub struct RionObject<'a> {
+    // pub data: Cow<'a, [u8]>,
     pub fields: HashMap<Cow<'a, [u8]>, RionField<'a>>,
 }
 
@@ -33,6 +35,35 @@ impl<'a> RionObject<'a> {
         RionObject {
             fields: HashMap::new(),
         }
+    }
+
+    pub fn from_slice(data: &'a [u8]) -> Result<Self> {
+        if data.is_empty() {
+            return Ok(RionObject::new());
+        }
+
+        let lead = LeadByte::try_from(data[0])?;
+        if lead.field_type() != RionFieldType::Normal(NormalRionType::Object) {
+            return Err("Expected an object".into());
+        }
+        let length_length = lead.length();
+        let length = BigUint::from_bytes_be(&data[1..1 + length_length as usize]);
+        let data_len: usize = length
+            .try_into()
+            .map_err(|_| "Data too large for this system!")?;
+        let mut data = &data[1 + length_length as usize..];
+        let total = data.len();
+        let mut fields = HashMap::new();
+        while total - data.len() < data_len {
+            let (key, rest) = RionField::parse(data)?;
+            if !key.is_key() {
+                return Err("Expected a key field".into());
+            }
+            let (value, rest) = RionField::parse(rest)?;
+            data = rest;
+            fields.insert(key.to_data().unwrap(), value);
+        }
+        Ok(RionObject { fields })
     }
 
     // Add a field to the RION object
@@ -72,31 +103,6 @@ impl<'a> RionObject<'a> {
     }
 
     // // Decode a RION object from its binary representation
-}
-
-impl<'a> TryFrom<RionField<'a>> for RionObject<'a> {
-    type Error = Box<dyn Error>;
-    fn try_from(value: RionField<'a>) -> std::result::Result<Self, Self::Error> {
-        let RionField::Normal(obj) = value else {
-            return Err("Invalid RionField type".into());
-        };
-        let NormalRionType::Object = obj.field_type else {
-            return Err("Invalid RionField type".into());
-        };
-        let data = obj.data;
-        let mut fields = HashMap::new();
-        let data_len = data.len() as u64;
-        let mut cursor = Cursor::new(data);
-        while cursor.position() < data_len {
-            let key = RionField::read_from(&mut cursor)?;
-            if !key.is_key() {
-                return Err("Invalid key field".into());
-            }
-            let field = RionField::read_from(&mut cursor)?;
-            fields.insert(key.to_data().unwrap(), field);
-        }
-        Ok(RionObject { fields })
-    }
 }
 
 impl From<RionObject<'_>> for RionField<'_> {
