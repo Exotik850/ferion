@@ -12,24 +12,6 @@ pub struct ShortField<'a> {
 }
 
 impl<'a> ShortField<'a> {
-    pub fn read_with_lead(
-        mut buffer: Vec<u8>,
-        field_type: ShortRionType,
-        data_len: usize,
-        buf: &mut impl std::io::Read,
-    ) -> Result<Self> {
-        if data_len > 15 {
-            return Err("Data too large for short field".into());
-        }
-        buffer.resize(data_len, 0);
-        buf.read_exact(&mut buffer)?;
-        Ok(ShortField {
-            field_type,
-            data_len: data_len as u8,
-            data: buffer.into(),
-        })
-    }
-
     pub fn parse(
         input: &'a [u8],
         data_len: usize,
@@ -65,72 +47,86 @@ impl<'a> ShortField<'a> {
     pub fn as_bytes(&self) -> &[u8] {
         &self.data
     }
+
+    pub fn as_pos_int(&self) -> Option<u64> {
+        if self.data_len > 8 || self.field_type != ShortRionType::Int64Positive {
+            return None;
+        }
+        let mut bytes = [0; 8];
+        bytes[8 - self.data_len as usize..].copy_from_slice(&self.data);
+        Some(u64::from_be_bytes(bytes))
+    }
+
+    pub fn as_neg_int(&self) -> Option<i64> {
+        if self.data_len > 8 || self.field_type != ShortRionType::Int64Negative {
+            return None;
+        }
+        let mut bytes = [0; 8];
+        bytes[8 - self.data_len as usize..].copy_from_slice(&self.data);
+        Some(-(i64::from_be_bytes(bytes) + 1))
+    }
+
+    pub fn as_f32(&self) -> Option<f32> {
+        if self.data_len > 4 || self.field_type != ShortRionType::Float {
+            return None;
+        }
+        let mut bytes = [0; 4];
+        bytes[4 - self.data_len as usize..].copy_from_slice(&self.data);
+        Some(f32::from_be_bytes(bytes))
+    }
+
+    pub fn as_f64(&self) -> Option<f64> {
+        if self.data_len > 8 || self.field_type != ShortRionType::Float {
+            return None;
+        }
+        let mut bytes = [0; 8];
+        bytes[8 - self.data_len as usize..].copy_from_slice(&self.data);
+        Some(f64::from_be_bytes(bytes))
+    }
+
+    pub fn is_null(&self) -> bool {
+        self.data.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NormalField<'a> {
     pub(crate) field_type: NormalRionType,
+    // Length in bytes of the length field
     pub(crate) length_length: u8,
     pub(crate) data: Cow<'a, [u8]>,
 }
 
 impl<'a> NormalField<'a> {
-    fn read_with_lead(
-        mut buffer: Vec<u8>,
-        field_type: NormalRionType,
-        length_length: usize,
-        buf: &mut impl std::io::Read,
-    ) -> Result<Self> {
-        if length_length > 15 {
-            return Err("Length too large for normal field".into());
-        }
-        buffer.resize(length_length, 0);
-        buf.read_exact(&mut buffer)?;
-        // The next length_length bytes (0..15) are the number of bytes (as a number) in the data
-        let data_len = BigUint::from_bytes_be(&buffer);
-        let data_len: usize = data_len
-            .try_into()
-            .map_err(|_| "Data too large for this system!")?;
-        buffer.resize(data_len, 0);
-        buf.read_exact(&mut buffer)?;
-        Ok(NormalField {
-            field_type,
-            length_length: length_length as u8,
-            data: buffer.into(),
-        })
-    }
-
-    pub fn read_from(buf: &mut impl std::io::Read) -> Result<Self> {
-        let mut buffer = vec![0; 1];
-        buf.read_exact(&mut buffer)?;
-        let lead_byte = LeadByte::try_from(buffer[0])?;
-        let RionFieldType::Normal(field_type) = lead_byte.field_type() else {
-            return Err("Invalid field type".into());
-        };
-        let length_length = lead_byte.length() as usize;
-        Self::read_with_lead(buffer, field_type, length_length, buf)
-    }
-
     pub fn parse(
         input: &'a [u8],
         length_length: usize,
         field_type: NormalRionType,
     ) -> Result<(Self, &'a [u8])> {
-        if length_length > 15 {
-            return Err("Length too large for normal field".into());
+        match length_length {
+            15.. => return Err("Length too large for normal field".into()),
+            0 => return Ok((NormalField { field_type, length_length: 0, data: (&[]).into() }, input)),
+            l if l > input.len() => return Err("Input too short for length field".into()),
+
+            _ => {}
         }
         let data_len = BigUint::from_bytes_be(&input[..length_length]);
-        let data_len: usize = data_len
-            .try_into()
-            .map_err(|_| "Data too large for this system!")?;
-        let data = &input[length_length..length_length + data_len];
+        let input = &input[length_length..];
+        let data_len: usize = match data_len.try_into() {
+            Ok(v) => v,
+            Err(_) => return Err(format!("Data length too large with ll {length_length}").into()),
+        };
+        if data_len > input.len() {
+            return Err(format!("Input too short for data field ({}), expected {data_len}", input.len()).into());
+        }
+        let data = &input[..data_len];
         Ok((
             NormalField {
                 field_type,
                 length_length: length_length as u8,
                 data: data.into(),
             },
-            &input[length_length + data_len..],
+            &input[data_len..],
         ))
     }
 
@@ -139,12 +135,16 @@ impl<'a> NormalField<'a> {
         // lead_byte.length() == bytes needed to represent d_len
         let d_len = self.data.len();
         let num_bytes = d_len.div_ceil(64);
-        if num_bytes > 15 {
+        if num_bytes > 8 {
             println!("Warning: Field length field is too long, truncating to 15 bytes");
         }
         data.write(&d_len.to_be_bytes()[8 - num_bytes..])?;
         data.write(&self.data)?;
         Ok(())
+    }
+
+    pub fn is_null(&self) -> bool {
+        self.data.is_empty()
     }
 
     pub fn as_str(&self) -> Option<&str> {
@@ -249,32 +249,12 @@ impl<'a> RionField<'a> {
         Ok(())
     }
 
-    pub fn from_slice(buf: &[u8]) -> Result<Self> {
-        let mut buf = std::io::Cursor::new(buf);
-        Self::read_from(&mut buf)
-    }
-
-    pub fn read_from(buf: &mut impl std::io::Read) -> Result<Self> {
-        let mut buffer = vec![0; 1];
-        buf.read_exact(&mut buffer)?;
-        let lead_byte = LeadByte::try_from(buffer[0])?;
-        println!(
-            "Lead byte: {:?} - {:?} - Length {}",
-            lead_byte,
-            lead_byte.field_type(),
-            lead_byte.length()
-        );
-        let data_len = lead_byte.length() as usize;
-        match lead_byte.field_type() {
-            RionFieldType::Tiny(lead) => Ok(RionField::Tiny(lead)),
-            RionFieldType::Short(short) => {
-                ShortField::read_with_lead(buffer, short, data_len, buf).map(RionField::Short)
-            }
-            RionFieldType::Normal(normal) => {
-                NormalField::read_with_lead(buffer, normal, data_len, buf).map(RionField::Normal)
-            }
-            RionFieldType::Extended => unimplemented!(),
+    pub fn from_slice(buf: &'a [u8]) -> Result<Self> {
+        let (field, rest) = Self::parse(buf)?;
+        if !rest.is_empty() {
+            return Err("Extra data after field".into());
         }
+        Ok(field)
     }
 
     pub fn is_key(&self) -> bool {
@@ -288,8 +268,8 @@ impl<'a> RionField<'a> {
     pub fn is_null(&self) -> bool {
         match self {
             RionField::Tiny(lead) => lead.is_null(),
-            RionField::Short(short) => short.data_len == 0,
-            RionField::Normal(normal) => normal.data.is_empty(),
+            RionField::Short(short) => short.is_null(),
+            RionField::Normal(normal) => normal.is_null(),
         }
     }
 
@@ -309,11 +289,39 @@ impl<'a> RionField<'a> {
         }
     }
 
+    // Bytes needed to encode this field
+    pub fn needed_bytes(&self) -> usize {
+        match self {
+            RionField::Tiny(_) => 1,
+            RionField::Short(short) => 1 + short.data_len as usize,
+            RionField::Normal(normal) => {
+                let length_length = normal.length_length as usize;
+                let data_len = normal.data.len();
+                1 + length_length + data_len
+            }
+        }
+    }
+
     pub fn to_data(self) -> Option<Cow<'a, [u8]>> {
+        // pub fn to_data(self) -> Option<&'a [u8]> {
         match self {
             RionField::Short(short) => Some(short.data),
             RionField::Normal(normal) => Some(normal.data),
             _ => None,
+        }
+    }
+
+    pub fn is_normal_type(&self, field_type: NormalRionType) -> bool {
+        match self {
+            RionField::Normal(normal) => normal.field_type == field_type,
+            _ => false,
+        }
+    }
+
+    pub fn is_short_type(&self, field_type: ShortRionType) -> bool {
+        match self {
+            RionField::Short(short) => short.field_type == field_type,
+            _ => false,
         }
     }
 }
@@ -387,7 +395,12 @@ impl<'a> From<&'a str> for RionField<'a> {
     fn from(value: &'a str) -> Self {
         let value_len = value.len();
         match value_len {
-            0..=15 => RionField::Short(ShortField {
+            0 => RionField::Normal(NormalField {
+                field_type: NormalRionType::UTF8,
+                length_length: 1,
+                data: (&[]).into(),
+            }),
+            1..=15 => RionField::Short(ShortField {
                 field_type: ShortRionType::UTF8,
                 data_len: value_len as u8,
                 data: value.as_bytes().into(),
