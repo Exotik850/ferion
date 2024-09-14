@@ -81,16 +81,16 @@ impl ShortRionType {
 }
 
 impl TryFrom<u8> for ShortRionType {
-    type Error = &'static str;
+    type Error = Box<dyn Error>;
     fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
         let out = match value {
             0x20 => ShortRionType::Int64Positive,
             0x30 => ShortRionType::Int64Negative,
-            0x50 => ShortRionType::UTF8,
-            0x70 => ShortRionType::UTCDateTime,
             0x40 => ShortRionType::Float,
-            0xD0 => ShortRionType::Key,
-            _ => return Err("Invalid short field type"),
+            0x60 => ShortRionType::UTF8,
+            0x70 => ShortRionType::UTCDateTime,
+            0xE0 => ShortRionType::Key,
+            _ => return Err(format!("Invalid short field type: {value:#X}").into()),
         };
         Ok(out)
     }
@@ -107,16 +107,16 @@ pub enum NormalRionType {
 }
 
 impl TryFrom<u8> for NormalRionType {
-    type Error = &'static str;
+    type Error = Box<dyn Error>;
     fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
         let out = match value & 0xF0 {
-            0x00 => NormalRionType::Bytes,
+            0x0 => NormalRionType::Bytes,
             0x50 => NormalRionType::UTF8,
             0xA0 => NormalRionType::Array,
             0xB0 => NormalRionType::Table,
             0xC0 => NormalRionType::Object,
             0xD0 => NormalRionType::Key,
-            _ => return Err("Invalid normal field type"),
+            _ => return Err(format!("Invalid normal field type: {value:#X}").into()),
         };
         Ok(out)
     }
@@ -147,15 +147,15 @@ impl RionFieldType {
 }
 
 impl TryFrom<u8> for RionFieldType {
-    type Error = &'static str;
+    type Error = Box<dyn Error>;
     fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
         let type_bits = value & 0xF0;
         match type_bits {
             0xF0 => Ok(RionFieldType::Extended),
             0x10 => Ok(RionFieldType::Tiny(LeadByte(value))),
-            0x80..=0xC0 => Ok(RionFieldType::Normal(NormalRionType::try_from(type_bits)?)),
-            0x00..=0x70 | 0xD0 => Ok(RionFieldType::Short(ShortRionType::try_from(type_bits)?)),
-            _ => Err("Invalid field type"),
+            0x00 | 0x50 | 0xA0..=0xD0 => Ok(RionFieldType::Normal(NormalRionType::try_from(type_bits)?)),
+            0x02..=0x70 | 0xE0 => Ok(RionFieldType::Short(ShortRionType::try_from(type_bits)?)),
+            _ => Err(format!("Invalid field type: {value:#X}").into()),
         }
     }
 }
