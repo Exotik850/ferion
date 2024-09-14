@@ -89,6 +89,12 @@ mod rion_field {
         let decoded = RionField::from_slice(&encoded).unwrap();
         assert_eq!(original, decoded);
     }
+
+    #[test]
+    fn test_null() {
+      let field = RionField::from_slice(&[0x50]).unwrap();
+      assert!(field.is_null());
+    }
 }
 
 mod rion_object {
