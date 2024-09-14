@@ -312,14 +312,14 @@ impl<'a> RionField<'a> {
 
     // Bytes needed to encode this field
     pub fn needed_bytes(&self) -> usize {
-        match self {
-            RionField::Tiny(_) => 1,
-            RionField::Short(short) => 1 + short.data_len as usize,
+        1 + match self {
+            RionField::Short(short) => short.data_len as usize,
             RionField::Normal(normal) => {
                 let length_length = normal.length_length as usize;
                 let data_len = normal.data.len();
-                1 + length_length + data_len
+                length_length + data_len
             }
+            _ => 0,
         }
     }
 
@@ -379,27 +379,46 @@ impl From<u64> for RionField<'_> {
 }
 
 impl From<DateTime<Utc>> for RionField<'_> {
-    fn from(value: DateTime<Utc>) -> Self {
-        let year = value.year();
-        if year > 65535 {
-            println!("Year is too large, truncating to 65535");
+    fn from(dt: DateTime<Utc>) -> Self {
+        let year = dt.year();
+        if year > 0xFFFF {
+            println!("Year is too large, truncating to 2^16-1");
         }
         let mut data = Vec::with_capacity(11);
-        data.extend_from_slice(&(year as u16).to_be_bytes());
-        let bytes = [
-            value.month(),
-            value.day(),
-            value.hour(),
-            value.minute(),
-            value.second(),
-        ]
-        .map(|v| v as u8); // TODO Compress unnecessary bytes
-        data.extend_from_slice(&bytes);
-        data.extend_from_slice(&value.nanosecond().to_be_bytes());
+        let components = [
+            dt.month() as u8,
+            dt.day() as u8,
+            dt.hour() as u8,
+            dt.minute() as u8,
+            dt.second() as u8,
+        ];
+        // Find the last non-zero component
+        let last_non_zero = components.iter().rposition(|&x| x != 0).unwrap_or(0);
+        // Add all components up to and including the last non-zero one
+        data.extend_from_slice(&components[..=last_non_zero]);
+        let nanos = dt.nanosecond();
+        let nanos_len = if nanos > 0 {
+            if nanos % 1_000_000 == 0 {
+                // Milliseconds (2 bytes)
+                data.extend_from_slice(&((nanos / 1_000_000) as u16).to_be_bytes());
+                2
+            } else if nanos % 1_000 == 0 {
+                // Microseconds (3 bytes)
+                let micros = nanos / 1_000;
+                data.extend_from_slice(&[(micros >> 16) as u8, (micros >> 8) as u8, micros as u8]);
+                3
+            } else {
+                // Nanoseconds (4 bytes)
+                data.extend_from_slice(&nanos.to_be_bytes());
+                4
+            }
+        } else {
+            0
+        };
         RionField::Short(ShortField {
             // lead_byte: LeadByte::from_type(RionFieldType::UTCDateTime, 11),
             field_type: ShortRionType::UTCDateTime,
-            data_len: 11,
+            data_len: (last_non_zero + nanos_len) as u8,
             data: data.into(),
         })
     }
