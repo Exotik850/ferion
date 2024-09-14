@@ -1,7 +1,6 @@
-use crate::{get_lead_byte, types::*, Result};
+use crate::{bytes_to_usize, get_lead_byte, types::*, Result};
 use chrono::{DateTime, Datelike, Timelike, Utc};
 use core::str;
-use num_bigint::BigUint;
 use std::borrow::Cow;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -12,6 +11,14 @@ pub struct ShortField<'a> {
 }
 
 impl<'a> ShortField<'a> {
+    pub fn null(field_type: ShortRionType) -> Self {
+        ShortField {
+            field_type,
+            data_len: 0,
+            data: (&[]).into(),
+        }
+    }
+
     pub fn parse(
         input: &'a [u8],
         data_len: usize,
@@ -32,7 +39,7 @@ impl<'a> ShortField<'a> {
     }
 
     pub fn extend(&self, data: &mut impl std::io::Write) -> std::io::Result<()> {
-        data.write(&[self.field_type.to_byte() | self.data_len])?;
+        data.write(&[self.field_type.to_byte() << 4 | self.data_len])?;
         data.write(&self.data)?;
         Ok(())
     }
@@ -98,47 +105,52 @@ pub struct NormalField<'a> {
 }
 
 impl<'a> NormalField<'a> {
+    pub fn null(field_type: NormalRionType) -> Self {
+        NormalField {
+            field_type,
+            length_length: 0,
+            data: (&[]).into(),
+        }
+    }
+
     pub fn parse(
         input: &'a [u8],
         length_length: usize,
         field_type: NormalRionType,
     ) -> Result<(Self, &'a [u8])> {
         match length_length {
-            15.. => return Err("Length too large for normal field".into()),
-            0 => return Ok((NormalField { field_type, length_length: 0, data: (&[]).into() }, input)),
+            16.. => return Err("Length too large for normal field".into()),
             l if l > input.len() => return Err("Input too short for length field".into()),
-
+            0 => return Ok((NormalField::null(field_type), input)),
             _ => {}
         }
-        let data_len = BigUint::from_bytes_be(&input[..length_length]);
-        let input = &input[length_length..];
-        let data_len: usize = match data_len.try_into() {
-            Ok(v) => v,
-            Err(_) => return Err(format!("Data length too large with ll {length_length}").into()),
-        };
+        let data_len = bytes_to_usize(&input[..length_length])?;
         if data_len > input.len() {
-            return Err(format!("Input too short for data field ({}), expected {data_len}", input.len()).into());
+            return Err(format!(
+                "Input too short for data field ({}), expected {data_len}",
+                input.len()
+            )
+            .into());
         }
-        let data = &input[..data_len];
+        let input = &input[length_length..];
+        let data = (&input[..data_len]).into();
         Ok((
             NormalField {
                 field_type,
                 length_length: length_length as u8,
-                data: data.into(),
+                data,
             },
             &input[data_len..],
         ))
     }
 
     pub fn extend(&self, data: &mut impl std::io::Write) -> std::io::Result<()> {
-        data.write(&[self.field_type.to_byte() | self.length_length])?;
+        data.write(&[self.field_type.to_byte() << 4 | self.length_length])?;
         // lead_byte.length() == bytes needed to represent d_len
-        let d_len = self.data.len();
-        let num_bytes = d_len.div_ceil(64);
-        if num_bytes > 8 {
-            println!("Warning: Field length field is too long, truncating to 15 bytes");
-        }
-        data.write(&d_len.to_be_bytes()[8 - num_bytes..])?;
+        // write the length of the data
+        let length_bytes = &self.data.len().to_be_bytes()[8 - self.length_length as usize..];
+        println!("Length bytes: {:?}", length_bytes);
+        data.write(length_bytes)?;
         data.write(&self.data)?;
         Ok(())
     }
@@ -216,9 +228,18 @@ impl<'a> RionField<'a> {
         value.into()
     }
 
-    pub fn parse(data: &'a [u8]) -> Result<(RionField<'_>, &'a [u8])> {
+    pub fn parse(data: &'a [u8]) -> Result<(RionField<'a>, &'a [u8])> {
         let (lead, rest) = get_lead_byte(data)?;
         let length = lead.length() as usize;
+        if length > data.len() {
+            return Err(format!(
+                "Input {:x?} too short for field {:?} ({}), expected {length}",
+                data,
+                lead.field_type(),
+                data.len()
+            )
+            .into());
+        }
         let (parsed, rest) = match lead.field_type() {
             RionFieldType::Short(short) => {
                 let (short, rest) = ShortField::parse(rest, length, short)?;
