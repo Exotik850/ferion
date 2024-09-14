@@ -27,6 +27,7 @@ mod test {
         array.add_element("value2");
 
         let encoded = array.encode();
+        println!("{:?}", encoded);
         let decoded_array = RionArray::from_slice(&encoded).unwrap();
 
         assert_eq!(array, decoded_array);
@@ -44,6 +45,12 @@ mod test {
 #[derive(Debug, PartialEq)]
 pub struct RionArray<'a> {
     pub elements: Vec<RionField<'a>>,
+}
+
+impl<'a> Default for RionArray<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<'a> RionArray<'a> {
@@ -92,14 +99,19 @@ impl<'a> RionArray<'a> {
         for element in &self.elements {
             element.encode(&mut content).unwrap();
         }
-        let length = content.len();
-        let length_bytes = length.to_be_bytes();
-        let byte_len = 8 - length.trailing_zeros() / 8;
-        let lead_byte =
-            LeadByte::from_type(RionFieldType::Normal(NormalRionType::Array), byte_len as u8);
-        let mut result = vec![lead_byte.byte()];
-        result.extend_from_slice(&length_bytes);
-        result.extend(content);
-        result
+        let content_len = content.len();
+        // number of bytes needed to encode the length
+        let length_length = content_len.div_ceil(64);
+        if length_length > 15 {
+            println!("Warning: Object length field is too long, truncating to 15 bytes");
+        }
+        println!("Content length: {content_len} - Num Bytes {length_length}");
+        let length_bytes = content_len.to_be_bytes();
+        let mut encoded = Vec::with_capacity(1 + content_len + length_length);
+        encoded.push(0xA0 | length_length as u8 & 0x0F);
+        // Add only the necessary bytes
+        encoded.extend_from_slice(&length_bytes[8 - length_length..]);
+        encoded.extend(content);
+        encoded
     }
 }
