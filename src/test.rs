@@ -14,6 +14,13 @@ mod rion_field {
     }
 
     #[test]
+    fn test_empty_utf8_field() {
+        let field = RionField::from("");
+        assert!(matches!(field, RionField::Normal(_)));
+        assert_eq!(field.as_str(), Some(""));
+    }
+
+    #[test]
     fn test_short_field() {
         let field = RionField::from("Hello");
         assert!(matches!(field, RionField::Short(_)));
@@ -92,8 +99,8 @@ mod rion_field {
 
     #[test]
     fn test_null() {
-      let field = RionField::from_slice(&[0x50]).unwrap();
-      assert!(field.is_null());
+        let field = RionField::from_slice(&[0x50]).unwrap();
+        assert!(field.is_null());
     }
 }
 
@@ -115,6 +122,17 @@ mod rion_object {
     }
 
     #[test]
+    fn test_decode_object() {
+        let data = vec![
+            0xC1, 0x15, 0xE3, 0x01, 0x01, 0x01, 0x22, 0xFF, 0xFF, 0xE3, 0x02, 0x02, 0x02, 0x22,
+            0xAB, 0xCD, 0xE3, 0x03, 0x03, 0x03, 0x22, 0x01, 0x23,
+        ];
+        let obj = RionObject::from_slice(&data).unwrap();
+        assert_eq!(obj.fields.len(), 3);
+        assert!(obj.fields.contains_key([1, 1, 1].as_ref()));
+    }
+
+    #[test]
     fn test_encode_decode_object() {
         let mut obj = RionObject::new();
         obj.add_field("name", "Alice");
@@ -122,7 +140,7 @@ mod rion_object {
         obj.add_field("is_student", true);
 
         let encoded = obj.encode();
-        // let decoded = RionField::from_slice(&encoded).unwrap();
+        println!("{:?}", encoded);
         let decoded_obj = RionObject::from_slice(&encoded).unwrap();
 
         assert_eq!(obj, decoded_obj);
@@ -132,7 +150,6 @@ mod rion_object {
     fn test_empty_object() {
         let obj = RionObject::new();
         let encoded = obj.encode();
-        // let decoded = RionField::from_slice(&encoded).unwrap();
         let decoded_obj = RionObject::from_slice(&encoded).unwrap();
         assert_eq!(obj, decoded_obj);
     }
@@ -140,14 +157,14 @@ mod rion_object {
     #[test]
     fn test_nested_object() {
         let mut inner_obj = RionObject::new();
-        inner_obj.add_field("inner_key", "inner_value");
+        inner_obj.add_field("ik", "iv");
 
         let mut outer_obj = RionObject::new();
-        outer_obj.add_field("outer_key", "outer_value");
-        outer_obj.add_field("nested", inner_obj);
+        outer_obj.add_field("ok", "ov");
+        outer_obj.add_field("n", inner_obj);
 
         let encoded = outer_obj.encode();
-        // let decoded = RionField::from_slice(&encoded).unwrap();
+        println!("{:x?}", encoded);
         let decoded_obj = RionObject::from_slice(&encoded).unwrap();
 
         assert_eq!(outer_obj, decoded_obj);
