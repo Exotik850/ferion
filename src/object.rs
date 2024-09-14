@@ -28,7 +28,7 @@ impl<'a> RionObject<'a> {
         }
     }
 
-    pub fn from_slice(data: &'a [u8]) -> Result<Self> {
+    fn parse(data: &'a [u8]) -> Result<(Self, &[u8])> {
         let (lead, data_len, mut data) = get_normal_header(data)?;
         let RionFieldType::Normal(NormalRionType::Object) = lead.field_type() else {
             return Err("Expected a RION object".into());
@@ -38,13 +38,21 @@ impl<'a> RionObject<'a> {
         while total - data.len() < data_len {
             let (key, rest) = RionField::parse(data)?;
             if !key.is_key() {
-                return Err("Expected a key field".into());
+                return Err(format!("Expected a key, found {key:?} in {data:x?}").into());
             }
             let (value, rest) = RionField::parse(rest)?;
             data = rest;
             fields.insert(key.to_data().unwrap(), value);
         }
-        Ok(RionObject { fields })
+        Ok((RionObject { fields }, data))
+    }
+
+    pub fn from_slice(data: &'a [u8]) -> Result<Self> {
+        let (object, rest) = Self::parse(data)?;
+        if !rest.is_empty() {
+            return Err("Extra data after object".into());
+        }
+        Ok(object)
     }
 
     // Add a field to the RION object
@@ -66,9 +74,7 @@ impl<'a> RionObject<'a> {
             // Encode field
             field.encode(&mut content).unwrap();
         }
-
         let content_len = content.len();
-        // number of bytes needed to encode the length
         let length_length = content_len.div_ceil(64);
         if length_length > 15 {
             println!("Warning: Object length field is too long, truncating to 15 bytes");
@@ -86,7 +92,7 @@ impl<'a> RionObject<'a> {
     // // Decode a RION object from its binary representation
 }
 
-impl From<RionObject<'_>> for RionField<'_> {
+impl<'a> From<RionObject<'a>> for RionField<'a> {
     fn from(obj: RionObject) -> Self {
         let mut content = Vec::new();
         for (key, field) in &obj.fields {
