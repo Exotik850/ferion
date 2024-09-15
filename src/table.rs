@@ -13,7 +13,7 @@ mod test {
     fn create_test_table_data() -> Vec<u8> {
         // Create a sample table with 2 columns and 2 rows
         let data = vec![
-            0xB1, 0x16, // Table lead byte and length
+            0xB1, 0x0C, // Table lead byte and length
             0x21, 0x02, // Number of rows (2)
             0xE2, b'i', b'd', // Column name "id"
             0xE4, b'n', b'a', b'm', b'e', // Column name "name"
@@ -211,7 +211,6 @@ impl<'a> RionTable<'a> {
         let RionFieldType::Normal(NormalRionType::Table) = lead.field_type() else {
             return Err(format!("Expected a RION table, found {:?}", lead.field_type()).into());
         };
-
         // First field is Int64Positive = m = number of rows
         let (field, mut rest) = RionField::parse(rest)?;
         let RionField::Short(short) = field else {
@@ -254,6 +253,13 @@ impl<'a> RionTable<'a> {
 
         // next m * n fields = data
         let data_len = m * column_names.len() as u64;
+        if data_len > length as u64 {
+            return Err(format!(
+                "Not enough data for rows, expected {}, found {}",
+                data_len, length
+            )
+            .into());
+        }
         let mut rows = Vec::with_capacity((data_len) as usize);
         rows.push(first_object);
         for _ in 0..data_len - (!column_names.is_empty() as u64) {
