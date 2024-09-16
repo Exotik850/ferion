@@ -7,6 +7,8 @@ mod types;
 
 #[cfg(feature = "serde")]
 mod serde;
+#[cfg(feature = "serde")]
+pub use serde::*;
 
 pub use array::RionArray;
 pub use object::RionObject;
@@ -32,7 +34,9 @@ fn get_header(data: &[u8]) -> Result<(LeadByte, &[u8], &[u8])> {
     let (lead, rest) = get_lead_byte(data)?;
     let length_length = lead.length() as usize;
     if length_length > rest.len() {
-        return Err(format!("Not enough data in {rest:x?} for length {length_length}").into());
+        return Err(
+            format!("Not enough data in {rest:x?} for length_length {length_length}").into(),
+        );
     }
     Ok((lead, &rest[..length_length], &rest[length_length..]))
 }
@@ -54,12 +58,17 @@ fn get_normal_header(data: &[u8]) -> Result<(LeadByte, usize, &[u8])> {
     };
     let data_len = bytes_to_usize(length)?;
     if data_len > rest.len() {
-        return Err(format!("Not enough data in {data:x?} for length {data_len}").into());
+        return Err(format!(
+            "Not enough data in {data:x?} (len: (rest) {} + (header) {}) for length {data_len}",
+            rest.len(),
+            1 + length.len()
+        )
+        .into());
     }
     Ok((lead, data_len, rest))
 }
 
-fn num_needed_length(length: usize) -> Result<usize> {
+fn _num_needed_length(length: usize) -> Result<usize> {
     let length_length = length.div_ceil(64);
     if length_length > 15 {
         return Err("Data too large for RION object".into());

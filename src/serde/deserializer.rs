@@ -52,7 +52,6 @@ where
     T: serde::de::Deserialize<'de>,
 {
     let mut deserializer = Deserializer::new(data);
-    println!("{:?}", deserializer.data);
     T::deserialize(&mut deserializer)
 }
 
@@ -63,17 +62,13 @@ pub enum DeserializeError {
     Custom(String),
 }
 
-struct Deserializer<'de> {
+pub struct Deserializer<'de> {
     data: &'de [u8],
 }
 
 impl<'de> Deserializer<'de> {
-    fn new(data: &'de [u8]) -> Self {
+    pub fn new(data: &'de [u8]) -> Self {
         Self { data }
-    }
-
-    fn peek_type(&self) -> Option<RionFieldType> {
-        RionFieldType::try_from(self.data[0]).ok()
     }
 
     fn parse_next_field(&mut self) -> Result<RionField<'de>, DeserializeError> {
@@ -179,16 +174,16 @@ mod tests {
         assert_eq!(value, 2147483647);
     }
 
-    // #[test]
-    // fn test_deserialize_float() {
-    //     let data = vec![0x44, 0x40, 0x48, 0xF5, 0xC3]; // 3.14 (f32)
-    //     let value: f32 = from_bytes(&data).unwrap();
-    //     assert!((value - 3.14).abs() < f32::EPSILON);
+    #[test]
+    fn test_deserialize_float() {
+        let data = vec![0x44, 0x40, 0x48, 0xF5, 0xC3]; // 3.14 (f32)
+        let value: f32 = from_bytes(&data).unwrap();
+        assert!((value - 3.14).abs() < f32::EPSILON);
 
-    //     let data = vec![0x48, 0x40, 0x09, 0x21, 0xFB, 0x54, 0x44, 0x2D, 0x18]; // 3.14159265358979 (f64)
-    //     let value: f64 = from_bytes(&data).unwrap();
-    //     assert!((value - 3.14159265358979).abs() < f64::EPSILON);
-    // }
+        let data = vec![0x48, 0x40, 0x09, 0x21, 0xFB, 0x54, 0x44, 0x2D, 0x11]; // 3.14159265358979 (f64)
+        let value: f64 = from_bytes(&data).unwrap();
+        assert!((value - 3.14159265358979).abs() < f64::EPSILON);
+    }
 
     #[test]
     fn test_deserialize_char() {
@@ -207,6 +202,58 @@ mod tests {
         let value: Option<u32> = from_bytes(&data).unwrap();
         assert_eq!(value, Some(10));
     }
+
+    use serde::Deserialize;
+    #[derive(Deserialize)]
+    struct Test {
+        name: String,
+        #[allow(dead_code)]
+        age: u32,
+    }
+
+    #[test]
+    fn test_deserialize_struct() {
+        let data = vec![
+            0xC1, 0x0F, // Start of object
+            0xE4, b'n', b'a', b'm', b'e', 0x65, b'A', b'l', b'i', b'c', b'e', // name: "Alice"
+            0xE3, b'a', b'g', b'e', 0x21, 0x1E, // age: 30
+        ];
+        let value: Test = from_bytes(&data).unwrap();
+        assert_eq!(value.name, "Alice");
+    }
+
+    // Nested structs
+    #[derive(Deserialize, Debug, PartialEq)]
+    struct Address {
+        street: String,
+        city: String,
+    }
+
+    #[derive(Deserialize, Debug, PartialEq)]
+    struct User {
+        name: String,
+        age: u32,
+        address: Address,
+    }
+
+    #[test]
+    fn test_deserialize_nested_struct() {
+        let data = vec![
+            0xC1, 0x35, // Start of object
+            0xE4, b'n', b'a', b'm', b'e', 0x65, b'A', b'l', b'i', b'c', b'e', // name: "Alice"
+            0xE3, b'a', b'g', b'e', 0x21, 0x1E, // age: 30
+            0xE7, b'a', b'd', b'd', b'r', b'e', b's', b's', 0xC1, 0x1A, // address: { ... }
+            0xE6, b's', b't', b'r', b'e', b'e', b't', 0x68, b'1', b'2', b'3', b' ', b'M', b'a',
+            b'i', b'n', // street: "123 Main"
+            0xE4, b'c', b'i', b't', b'y', 0x64, b'S', b'o', b'm', b'e', // city: "Some"
+        ];
+        println!("{:?}", data.len());
+        let value: User = from_bytes(&data).unwrap();
+        assert_eq!(value.name, "Alice");
+        assert_eq!(value.age, 30);
+        assert_eq!(value.address.street, "123 Main");
+        assert_eq!(value.address.city, "Some");
+    }
 }
 
 impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
@@ -216,12 +263,10 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        println!("Deserializing any!");
         let field = self.parse_next_field()?;
         if field.is_null() {
             return visitor.visit_none();
         }
-        println!("{:?}", field);
         self.visit_field(field, visitor)
     }
 
@@ -331,7 +376,7 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
 
     fn deserialize_unit_struct<V>(
         self,
-        name: &'static str,
+        _name: &'static str,
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
@@ -342,7 +387,7 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
 
     fn deserialize_newtype_struct<V>(
         self,
-        name: &'static str,
+        _name: &'static str,
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
@@ -355,7 +400,6 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        println!("Deserializing seq!");
         let (lead, length, rest) =
             crate::get_normal_header(self.data).map_err(|e| e.to_string())?;
         let RionFieldType::Normal(NormalRionType::Array) = lead.field_type() else {
@@ -368,7 +412,7 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
         visitor.visit_seq(self)
     }
 
-    fn deserialize_tuple<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_tuple<V>(self, _len: usize, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
@@ -377,8 +421,8 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
 
     fn deserialize_tuple_struct<V>(
         self,
-        name: &'static str,
-        len: usize,
+        _name: &'static str,
+        _len: usize,
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
@@ -391,7 +435,6 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        println!("Deserializing map!");
         let (lead, length, rest) =
             crate::get_normal_header(self.data).map_err(|e| e.to_string())?;
         let RionFieldType::Normal(NormalRionType::Object) = lead.field_type() else {
@@ -406,22 +449,21 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
 
     fn deserialize_struct<V>(
         self,
-        name: &'static str,
-        fields: &'static [&'static str],
+        _name: &'static str,
+        _fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        println!("Deserializing struct!");
         self.deserialize_map(visitor)
     }
 
     fn deserialize_enum<V>(
         self,
-        name: &'static str,
-        variants: &'static [&'static str],
-        visitor: V,
+        _name: &'static str,
+        _variants: &'static [&'static str],
+        _visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
@@ -433,7 +475,6 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        println!("Deserializing identifier!");
         self.deserialize_str(visitor)
     }
 
@@ -441,7 +482,6 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        println!("Ignoring any!");
         self.deserialize_any(visitor)
     }
 }

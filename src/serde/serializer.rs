@@ -39,7 +39,7 @@ mod test {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::{RionField, RionObject};
+    use crate::RionObject;
 
     #[test]
     fn test_serialize_bool() {
@@ -176,7 +176,7 @@ impl<'a> serde::Serializer for &'a mut Serializer {
 
     fn serialize_newtype_struct<T>(
         self,
-        name: &'static str,
+        _name: &'static str,
         value: &T,
     ) -> Result<Self::Ok, Self::Error>
     where
@@ -187,9 +187,9 @@ impl<'a> serde::Serializer for &'a mut Serializer {
 
     fn serialize_newtype_variant<T>(
         self,
-        name: &'static str,
-        variant_index: u32,
-        variant: &'static str,
+        _name: &'static str,
+        _variant_index: u32,
+        _variant: &'static str,
         value: &T,
     ) -> Result<Self::Ok, Self::Error>
     where
@@ -198,7 +198,7 @@ impl<'a> serde::Serializer for &'a mut Serializer {
         value.serialize(self)
     }
 
-    fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
+    fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
         Ok(SizedSerializer {
             initial_len: self.output.len(),
             temp: Serializer::new(),
@@ -212,7 +212,7 @@ impl<'a> serde::Serializer for &'a mut Serializer {
 
     fn serialize_tuple_struct(
         self,
-        name: &'static str,
+        _name: &'static str,
         len: usize,
     ) -> Result<Self::SerializeTupleStruct, Self::Error> {
         self.serialize_seq(Some(len))
@@ -220,26 +220,15 @@ impl<'a> serde::Serializer for &'a mut Serializer {
 
     fn serialize_tuple_variant(
         self,
-        name: &'static str,
-        variant_index: u32,
-        variant: &'static str,
+        _name: &'static str,
+        _variant_index: u32,
+        _variant: &'static str,
         len: usize,
     ) -> Result<Self::SerializeTupleVariant, Self::Error> {
         self.serialize_seq(Some(len))
     }
 
-    fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
-        // if let Some(len) = len {
-        //     let num_bytes = len.div_ceil(64);
-        //     if num_bytes > 15 {
-        //         return Err(Error); // TODO handle error
-        //     }
-        //     self.output.push(0xC << 4 | num_bytes as u8); // Object lead byte
-        //     let ll = len as u64;
-        //     let len_bytes = ll.to_be_bytes();
-        //     let zeros = len.trailing_zeros() as usize / 8;
-        //     self.output.extend_from_slice(dbg!(&len_bytes[zeros..]));
-        // }
+    fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
         Ok(SizedSerializer {
             initial_len: self.output.len(),
             temp: Serializer::new(),
@@ -249,7 +238,7 @@ impl<'a> serde::Serializer for &'a mut Serializer {
 
     fn serialize_struct(
         self,
-        name: &'static str,
+        _name: &'static str,
         len: usize,
     ) -> Result<Self::SerializeStruct, Self::Error> {
         self.serialize_map(Some(len))
@@ -257,9 +246,9 @@ impl<'a> serde::Serializer for &'a mut Serializer {
 
     fn serialize_struct_variant(
         self,
-        name: &'static str,
-        variant_index: u32,
-        variant: &'static str,
+        _name: &'static str,
+        _variant_index: u32,
+        _variant: &'static str,
         len: usize,
     ) -> Result<Self::SerializeStructVariant, Self::Error> {
         self.serialize_map(Some(len))

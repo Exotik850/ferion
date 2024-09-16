@@ -11,6 +11,10 @@ serde = { version = "1.0.210", optional = true }
 # const-slice = "0.1.0"
 # smallvec = "1.13.2"
 
+[dev-dependencies]
+serde = { version = "1.0.210", features = ["derive"] }
+
+
 
 [features]
 serde = ["dep:serde"]
