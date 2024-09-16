@@ -67,7 +67,9 @@ impl<'a> RionObject<'a> {
     // Encode the RION object to its binary representation
     pub fn encode(&self) -> Vec<u8> {
         let mut content = Vec::new();
-        for (key, field) in &self.fields {
+        let mut fields = self.fields.iter().collect::<Vec<_>>();
+        fields.sort_unstable_by_key(|f| f.0);
+        for (key, field) in fields {
             // Encode key
             let key_field = RionField::key(key);
             key_field.encode(&mut content).unwrap();
