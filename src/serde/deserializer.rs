@@ -1,7 +1,9 @@
-use std::fmt::Display;
+use std::{error::Error, fmt::Display};
+
+use serde::{de::Visitor, forward_to_deserialize_any};
 
 use crate::{
-    types::{NormalRionType, RionFieldType, ShortRionType},
+    types::{LeadByte, NormalRionType, RionFieldType, ShortRionType},
     RionField,
 };
 
@@ -33,11 +35,26 @@ impl From<String> for DeserializeError {
     }
 }
 
+impl From<Box<dyn Error>> for DeserializeError {
+    fn from(err: Box<dyn Error>) -> Self {
+        DeserializeError::Custom(err.to_string())
+    }
+}
+
 // impl<T: Display> From<T> for DeserializeError {
 //     fn from(err: T) -> Self {
 //         DeserializeError::Custom(err.to_string())
 //     }
 // }
+
+pub fn from_bytes<'de, T>(data: &'de [u8]) -> Result<T, DeserializeError>
+where
+    T: serde::de::Deserialize<'de>,
+{
+    let mut deserializer = Deserializer::new(data);
+    println!("{:?}", deserializer.data);
+    T::deserialize(&mut deserializer)
+}
 
 #[derive(Debug)]
 pub enum DeserializeError {
@@ -50,22 +67,16 @@ struct Deserializer<'de> {
     data: &'de [u8],
 }
 
-impl<'a> Deserializer<'a> {
-    fn new(data: &'a [u8]) -> Self {
+impl<'de> Deserializer<'de> {
+    fn new(data: &'de [u8]) -> Self {
         Self { data }
     }
 
-    fn peek_next(&self) -> Result<u8, DeserializeError> {
-        self.data.first().copied().ok_or(DeserializeError::Eod)
+    fn peek_type(&self) -> Option<RionFieldType> {
+        RionFieldType::try_from(self.data[0]).ok()
     }
 
-    fn next_byte(&mut self) -> Result<u8, DeserializeError> {
-        let byte = self.data.first().copied().ok_or(DeserializeError::Eod)?;
-        self.data = &self.data[1..];
-        Ok(byte)
-    }
-
-    fn parse_next_field(&mut self) -> Result<RionField<'a>, DeserializeError> {
+    fn parse_next_field(&mut self) -> Result<RionField<'de>, DeserializeError> {
         let (field, rest) =
             RionField::parse(self.data).map_err(|_| DeserializeError::InvalidData)?;
         self.data = rest;
@@ -74,43 +85,19 @@ impl<'a> Deserializer<'a> {
 
     fn parse_field<T>(&mut self) -> Result<T, DeserializeError>
     where
-        T: TryFrom<RionField<'a>, Error: Display>,
+        T: TryFrom<RionField<'de>, Error: Display>,
     {
         let field = self.parse_next_field()?;
+        println!("{:?}", field);
         Ok(field
             .try_into()
             .map_err(|e: T::Error| DeserializeError::Custom(e.to_string()))?)
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::Deserializer;
-    #[test]
-    fn test_deserialize_uint() {
-        let data = vec![0x21, 0x0A]; // 10
-        let mut deserializer = Deserializer::new(&data);
-        let value: u64 = deserializer.parse_field().unwrap();
-        assert_eq!(value, 10);
-    }
-
-    #[test]
-    fn test_deserialize_string() {
-        let data = vec![0xD1, 0x05, b'A', b'l', b'i', b'c', b'e'];
-        let mut deserializer = Deserializer::new(&data);
-        let name: String = deserializer.parse_field().unwrap();
-        assert_eq!(name, "Alice");
-    }
-}
-
-impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
-    type Error = DeserializeError;
-
-    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn visit_field<V>(&mut self, field: RionField, visitor: V) -> Result<V::Value, DeserializeError>
     where
-        V: serde::de::Visitor<'de>,
+        V: Visitor<'de>,
     {
-        let field = self.parse_next_field()?;
         match field.field_type() {
             RionFieldType::Normal(NormalRionType::Bytes) => visitor.visit_bytes(field.as_bytes()),
             RionFieldType::Normal(NormalRionType::UTF8 | NormalRionType::Key)
@@ -128,85 +115,166 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
             RionFieldType::Short(ShortRionType::Int64Positive) => {
                 visitor.visit_u64(field.try_into().unwrap())
             }
+            RionFieldType::Short(ShortRionType::Float) => {
+                let RionField::Short(short) = field else {
+                    unreachable!()
+                };
+                match short.data_len {
+                    ..=4 => visitor.visit_f32(short.as_f32().unwrap()),
+                    ..=8 => visitor.visit_f64(short.as_f64().unwrap()),
+                    _ => Err(DeserializeError::InvalidData),
+                }
+            }
+            RionFieldType::Short(ShortRionType::UTCDateTime) => {
+                todo!()
+            }
             _ => Err(DeserializeError::InvalidData),
         }
     }
+}
 
-    fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_deserialize_uint() {
+        let data = vec![0x21, 0x0A]; // 10
+        let value: u64 = from_bytes(&data).unwrap();
+        assert_eq!(value, 10);
+    }
+
+    #[test]
+    fn test_deserialize_string() {
+        let data = vec![0xD1, 0x05, b'A', b'l', b'i', b'c', b'e'];
+        let name: String = from_bytes(&data).unwrap();
+        assert_eq!(name, "Alice");
+    }
+
+    #[test]
+    fn test_deserialize_map() {
+        let data = vec![
+            0xC1, 0x0A, 0xE3, b'K', b'e', b'y', 0x65, b'V', b'a', b'l', b'u', b'e',
+        ];
+        let map: std::collections::HashMap<String, String> = from_bytes(&data).unwrap();
+        println!("{:?}", map);
+        assert_eq!(map.get("Key").unwrap(), "Value");
+    }
+
+    #[test]
+    fn test_deserialize_integers() {
+        let data = vec![0x21, 0x7F]; // 127 (i8 max)
+        let value: u8 = from_bytes(&data).unwrap();
+        assert_eq!(value, 127);
+
+        let data = vec![0x31, 0x7F]; // -128 (i8 min)
+        let value: i8 = from_bytes(&data).unwrap();
+        assert_eq!(value, i8::MIN);
+
+        let data = vec![0x22, 0x7F, 0xFF]; // 32767 (i16 max)
+        let value: i16 = from_bytes(&data).unwrap();
+        assert_eq!(value, 32767);
+
+        let data = vec![0x24, 0x7F, 0xFF, 0xFF, 0xFF]; // 2147483647 (i32 max)
+        let value: i32 = from_bytes(&data).unwrap();
+        assert_eq!(value, 2147483647);
+    }
+
+    // #[test]
+    // fn test_deserialize_float() {
+    //     let data = vec![0x44, 0x40, 0x48, 0xF5, 0xC3]; // 3.14 (f32)
+    //     let value: f32 = from_bytes(&data).unwrap();
+    //     assert!((value - 3.14).abs() < f32::EPSILON);
+
+    //     let data = vec![0x48, 0x40, 0x09, 0x21, 0xFB, 0x54, 0x44, 0x2D, 0x18]; // 3.14159265358979 (f64)
+    //     let value: f64 = from_bytes(&data).unwrap();
+    //     assert!((value - 3.14159265358979).abs() < f64::EPSILON);
+    // }
+
+    #[test]
+    fn test_deserialize_char() {
+        let data = vec![0x61, b'A'];
+        let value: char = from_bytes(&data).unwrap();
+        assert_eq!(value, 'A');
+    }
+
+    #[test]
+    fn test_deserialize_option() {
+        let data = vec![0x00]; // null
+        let value: Option<u32> = from_bytes(&data).unwrap();
+        assert_eq!(value, None);
+
+        let data = vec![0x21, 0x0A]; // Some(10)
+        let value: Option<u32> = from_bytes(&data).unwrap();
+        assert_eq!(value, Some(10));
+    }
+}
+
+impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
+    type Error = DeserializeError;
+
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        visitor.visit_bool(self.parse_field()?)
+        println!("Deserializing any!");
+        let field = self.parse_next_field()?;
+        if field.is_null() {
+            return visitor.visit_none();
+        }
+        println!("{:?}", field);
+        self.visit_field(field, visitor)
+    }
+
+    forward_to_deserialize_any! {
+      bool i64 u64 bytes f32 f64 str
     }
 
     fn deserialize_i8<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        visitor.visit_i8(self.parse_field()?)
+        let value: _ = self.parse_field()?;
+        visitor.visit_i8(value)
     }
 
     fn deserialize_i16<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        visitor.visit_i16(self.parse_field()?)
+        let value: _ = self.parse_field()?;
+        visitor.visit_i16(value)
     }
 
     fn deserialize_i32<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        visitor.visit_i32(self.parse_field()?)
-    }
-
-    fn deserialize_i64<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        visitor.visit_i64(self.parse_field()?)
+        let value: _ = self.parse_field()?;
+        visitor.visit_i32(value)
     }
 
     fn deserialize_u8<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        visitor.visit_u8(self.parse_field()?)
+        let value: _ = self.parse_field()?;
+        visitor.visit_u8(value)
     }
 
     fn deserialize_u16<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        visitor.visit_u16(self.parse_field()?)
+        let value: _ = self.parse_field()?;
+        visitor.visit_u16(value)
     }
 
     fn deserialize_u32<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        visitor.visit_u32(self.parse_field()?)
-    }
-
-    fn deserialize_u64<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        visitor.visit_u64(self.parse_field()?)
-    }
-
-    fn deserialize_f32<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        visitor.visit_f32(self.parse_field()?)
-    }
-
-    fn deserialize_f64<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        visitor.visit_f64(self.parse_field()?)
+        let value: _ = self.parse_field()?;
+        visitor.visit_u32(value)
     }
 
     fn deserialize_char<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -216,33 +284,11 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
         visitor.visit_char(self.parse_field()?)
     }
 
-    fn deserialize_str<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        let field = self.parse_next_field()?;
-        match field.as_str() {
-            Some(s) => visitor.visit_str(s),
-            None => Err(DeserializeError::InvalidData),
-        }
-    }
-
     fn deserialize_string<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
         visitor.visit_string(self.parse_field()?)
-    }
-
-    fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where
-        V: serde::de::Visitor<'de>,
-    {
-        let field = self.parse_next_field()?;
-        let RionFieldType::Normal(NormalRionType::Bytes) = field.field_type() else {
-            return Err(DeserializeError::InvalidData);
-        };
-        visitor.visit_bytes(field.as_bytes())
     }
 
     fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -260,8 +306,11 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        let field = self.parse_next_field()?;
-        if field.is_null() {
+        let Some(first) = self.data.get(0) else {
+            return Err(DeserializeError::Eod);
+        };
+        let lead = LeadByte::try_from(*first)?;
+        if lead.is_null() {
             visitor.visit_none()
         } else {
             visitor.visit_some(self)
@@ -306,6 +355,7 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
+        println!("Deserializing seq!");
         let (lead, length, rest) =
             crate::get_normal_header(self.data).map_err(|e| e.to_string())?;
         let RionFieldType::Normal(NormalRionType::Array) = lead.field_type() else {
@@ -322,7 +372,7 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        visitor.visit_seq(self)
+        self.deserialize_seq(visitor)
     }
 
     fn deserialize_tuple_struct<V>(
@@ -334,13 +384,14 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        visitor.visit_seq(self)
+        self.deserialize_seq(visitor)
     }
 
     fn deserialize_map<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
+        println!("Deserializing map!");
         let (lead, length, rest) =
             crate::get_normal_header(self.data).map_err(|e| e.to_string())?;
         let RionFieldType::Normal(NormalRionType::Object) = lead.field_type() else {
@@ -362,6 +413,7 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
+        println!("Deserializing struct!");
         self.deserialize_map(visitor)
     }
 
@@ -381,6 +433,7 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
+        println!("Deserializing identifier!");
         self.deserialize_str(visitor)
     }
 
@@ -388,6 +441,7 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
+        println!("Ignoring any!");
         self.deserialize_any(visitor)
     }
 }
@@ -418,7 +472,9 @@ impl<'de, 'a> serde::de::MapAccess<'de> for &'a mut Deserializer<'de> {
             return Ok(None);
         }
         // If the next byte is not a key, return None
-        if self.data[0] & 0xF0 != 0xE0 | 0xD0 {
+        let field_val = self.data[0] & 0xF0;
+        let field_type = RionFieldType::try_from(field_val)?;
+        if !field_type.is_key() {
             return Ok(None);
         }
         let key = seed.deserialize(&mut **self)?;
