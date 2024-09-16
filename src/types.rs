@@ -37,7 +37,7 @@ impl TryFrom<u8> for LeadByte {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Copy)]
 pub enum RionFieldType {
     Short(ShortRionType),
     Normal(NormalRionType),
@@ -143,6 +143,13 @@ impl RionFieldType {
             Self::Extended => 0xF,
             Self::Tiny(lead) => lead.byte(),
         }
+    }
+
+    pub fn is_key(&self) -> bool {
+        matches!(
+            self,
+            RionFieldType::Short(ShortRionType::Key) | RionFieldType::Normal(NormalRionType::Key)
+        )
     }
 }
 

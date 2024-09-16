@@ -5,8 +5,12 @@ mod object;
 mod table;
 mod types;
 
+#[cfg(feature = "serde")]
+mod serde;
+
 pub use array::RionArray;
 pub use object::RionObject;
+pub use table::RionTable;
 
 #[cfg(test)]
 mod test;
@@ -48,7 +52,10 @@ fn get_normal_header(data: &[u8]) -> Result<(LeadByte, usize, &[u8])> {
     let types::RionFieldType::Normal(_) = lead.field_type() else {
         return Err("Expected a Normal encoded field".into());
     };
-    let data_len = bytes_to_usize(length).inspect_err(|e| println!("{e}"))?;
+    let data_len = bytes_to_usize(length)?;
+    if data_len > rest.len() {
+        return Err(format!("Not enough data in {data:x?} for length {data_len}").into());
+    }
     Ok((lead, data_len, rest))
 }
 
