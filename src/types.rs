@@ -13,11 +13,17 @@ impl LeadByte {
     }
 
     pub fn length(self) -> u8 {
-        self.0 & 0x0F
+        match self.field_type() {
+            RionFieldType::Tiny(_) => 0,
+            _ => self.0 & 0x0F,
+        }
     }
 
     pub fn is_null(self) -> bool {
-        self.length() == 0
+        match self.field_type() {
+            RionFieldType::Tiny(lead) => lead.byte() & 0x0F == 0,
+            _ => self.length() == 0,
+        }
     }
 
     pub fn is_short(self) -> bool {
@@ -26,6 +32,13 @@ impl LeadByte {
 
     pub fn byte(self) -> u8 {
         self.0
+    }
+
+    pub fn as_bool(self) -> Option<bool> {
+        match self.field_type() {
+            RionFieldType::Tiny(lead) if lead.byte() & 0x0F != 0 => Some(lead.byte() & 0x0F == 2),
+            _ => None,
+        }
     }
 }
 
