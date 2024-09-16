@@ -1,4 +1,4 @@
-use crate::{bytes_to_usize, get_lead_byte, types::*, Result};
+use crate::{bytes_to_num, get_lead_byte, types::*, Result};
 use chrono::{DateTime, Datelike, Timelike, Utc};
 use core::str;
 use std::{borrow::Cow, error::Error};
@@ -124,7 +124,7 @@ impl<'a> NormalField<'a> {
             0 => return Ok((NormalField::null(field_type), input)),
             _ => {}
         }
-        let data_len = bytes_to_usize(&input[..length_length])?;
+        let data_len: usize = bytes_to_num(&input[..length_length])?;
         if data_len > input.len() {
             return Err(format!(
                 "Input too short for data field ({}), expected {data_len}",

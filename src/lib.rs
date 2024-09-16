@@ -41,11 +41,12 @@ fn get_header(data: &[u8]) -> Result<(LeadByte, &[u8], &[u8])> {
     Ok((lead, &rest[..length_length], &rest[length_length..]))
 }
 
-fn bytes_to_usize(bytes: &[u8]) -> Result<usize> {
+fn bytes_to_num<T>(bytes: &[u8]) -> Result<T>
+where T: TryFrom<BigUint> {
     let length = BigUint::from_bytes_be(bytes);
-    let data_len: usize = length
+    let data_len: T = length
         .try_into()
-        .map_err(|_| "Data too large for this system!")?;
+        .map_err(|_| format!("Data too large for {}", std::any::type_name::<T>()))?;
     Ok(data_len)
 }
 
@@ -56,7 +57,7 @@ fn get_normal_header(data: &[u8]) -> Result<(LeadByte, usize, &[u8])> {
     let types::RionFieldType::Normal(_) = lead.field_type() else {
         return Err("Expected a Normal encoded field".into());
     };
-    let data_len = bytes_to_usize(length)?;
+    let data_len: usize = bytes_to_num(length)?;
     if data_len > rest.len() {
         return Err(format!(
             "Not enough data in {data:x?} (len: (rest) {} + (header) {}) for length {data_len}",
