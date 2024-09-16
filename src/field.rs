@@ -530,12 +530,15 @@ impl From<f64> for RionField<'_> {
 impl TryFrom<RionField<'_>> for i64 {
     type Error = Box<dyn std::error::Error>;
     fn try_from(value: RionField<'_>) -> Result<Self> {
-        match value {
-            RionField::Short(short) => short
-                .as_neg_int()
-                .ok_or_else(|| format!("Field is not a negative integer: {:?}", short).into()),
-            _ => Err("Field is not a negative integer".into()),
-        }
+        let out = match value {
+            RionField::Short(short) => match short.field_type {
+                ShortRionType::Int64Positive => short.as_pos_int().unwrap().try_into()?,
+                ShortRionType::Int64Negative => short.as_neg_int().unwrap(),
+                _ => return Err("Field is not an integer".into()),
+            },
+            _ => return Err("Field is not an integer".into()),
+        };
+        Ok(out)
     }
 }
 impl TryFrom<RionField<'_>> for u64 {
@@ -554,7 +557,7 @@ impl TryFrom<RionField<'_>> for u32 {
     fn try_from(value: RionField<'_>) -> std::result::Result<Self, Self::Error> {
         let value = u64::try_from(value)?;
         if value > u32::MAX as u64 {
-            return Err("Value is too large for u32".into());
+            return Err(format!("Value ({value:?}) is too large for u32").into());
         }
         Ok(value as u32)
     }
@@ -564,7 +567,7 @@ impl TryFrom<RionField<'_>> for u16 {
     fn try_from(value: RionField<'_>) -> std::result::Result<Self, Self::Error> {
         let value = u64::try_from(value)?;
         if value > u16::MAX as u64 {
-            return Err("Value is too large for u16".into());
+            return Err(format!("Value ({value:?}) is too large for u16").into());
         }
         Ok(value as u16)
     }
@@ -574,7 +577,7 @@ impl TryFrom<RionField<'_>> for u8 {
     fn try_from(value: RionField<'_>) -> std::result::Result<Self, Self::Error> {
         let value = u64::try_from(value)?;
         if value > u8::MAX as u64 {
-            return Err("Value is too large for u8".into());
+            return Err(format!("Value ({value:?}) is too large for u8").into());
         }
         Ok(value as u8)
     }
@@ -584,7 +587,7 @@ impl TryFrom<RionField<'_>> for i32 {
     fn try_from(value: RionField<'_>) -> std::result::Result<Self, Self::Error> {
         let value = i64::try_from(value)?;
         if value < i32::MIN as i64 || value > i32::MAX as i64 {
-            return Err("Value is too large for i32".into());
+            return Err(format!("Value ({value:?}) is too large for i32").into());
         }
         Ok(value as i32)
     }
@@ -594,7 +597,7 @@ impl TryFrom<RionField<'_>> for i16 {
     fn try_from(value: RionField<'_>) -> std::result::Result<Self, Self::Error> {
         let value = i64::try_from(value)?;
         if value < i16::MIN as i64 || value > i16::MAX as i64 {
-            return Err("Value is too large for i16".into());
+            return Err(format!("Value ({value:?}) is too large for i16").into());
         }
         Ok(value as i16)
     }
@@ -604,7 +607,7 @@ impl TryFrom<RionField<'_>> for i8 {
     fn try_from(value: RionField<'_>) -> std::result::Result<Self, Self::Error> {
         let value = i64::try_from(value)?;
         if value < i8::MIN as i64 || value > i8::MAX as i64 {
-            return Err("Value is too large for i8".into());
+            return Err(format!("Value ({value:?}) is too large for i8").into());
         }
         Ok(value as i8)
     }
