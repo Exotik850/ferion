@@ -1,7 +1,7 @@
 use crate::{bytes_to_usize, get_lead_byte, types::*, Result};
 use chrono::{DateTime, Datelike, Timelike, Utc};
 use core::str;
-use std::borrow::Cow;
+use std::{borrow::Cow, error::Error};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ShortField<'a> {
@@ -180,6 +180,10 @@ pub enum RionField<'a> {
 }
 
 impl<'a> RionField<'a> {
+    pub fn expect<T: From<Self>>(self) -> T {
+        self.into()
+    }
+
     pub fn key(key: &'a [u8]) -> Self {
         if key.len() < 16 {
             RionField::Short(ShortField {
@@ -221,6 +225,10 @@ impl<'a> RionField<'a> {
     }
 
     pub fn uint64(value: u64) -> Self {
+        value.into()
+    }
+
+    pub fn bool(value: bool) -> Self {
         value.into()
     }
 
@@ -343,6 +351,14 @@ impl<'a> RionField<'a> {
         match self {
             RionField::Short(short) => short.field_type == field_type,
             _ => false,
+        }
+    }
+
+    pub fn field_type(&self) -> RionFieldType {
+        match self {
+            RionField::Tiny(lead) => RionFieldType::Tiny(*lead),
+            RionField::Short(short) => RionFieldType::Short(short.field_type),
+            RionField::Normal(normal) => RionFieldType::Normal(normal.field_type),
         }
     }
 }
@@ -510,3 +526,181 @@ impl From<f64> for RionField<'_> {
         })
     }
 }
+
+impl TryFrom<RionField<'_>> for i64 {
+    type Error = Box<dyn std::error::Error>;
+    fn try_from(value: RionField<'_>) -> Result<Self> {
+        match value {
+            RionField::Short(short) => short
+                .as_neg_int()
+                .ok_or_else(|| format!("Field is not a negative integer: {:?}", short).into()),
+            _ => Err("Field is not a negative integer".into()),
+        }
+    }
+}
+impl TryFrom<RionField<'_>> for u64 {
+    type Error = Box<dyn std::error::Error>;
+    fn try_from(value: RionField<'_>) -> Result<Self> {
+        match value {
+            RionField::Short(short) => short
+                .as_pos_int()
+                .ok_or_else(|| format!("Field is not a positive integer: {:?}", short).into()),
+            _ => Err("Field is not a positive integer".into()),
+        }
+    }
+}
+impl TryFrom<RionField<'_>> for u32 {
+    type Error = Box<dyn Error>;
+    fn try_from(value: RionField<'_>) -> std::result::Result<Self, Self::Error> {
+        let value = u64::try_from(value)?;
+        if value > u32::MAX as u64 {
+            return Err("Value is too large for u32".into());
+        }
+        Ok(value as u32)
+    }
+}
+impl TryFrom<RionField<'_>> for u16 {
+    type Error = Box<dyn Error>;
+    fn try_from(value: RionField<'_>) -> std::result::Result<Self, Self::Error> {
+        let value = u64::try_from(value)?;
+        if value > u16::MAX as u64 {
+            return Err("Value is too large for u16".into());
+        }
+        Ok(value as u16)
+    }
+}
+impl TryFrom<RionField<'_>> for u8 {
+    type Error = Box<dyn Error>;
+    fn try_from(value: RionField<'_>) -> std::result::Result<Self, Self::Error> {
+        let value = u64::try_from(value)?;
+        if value > u8::MAX as u64 {
+            return Err("Value is too large for u8".into());
+        }
+        Ok(value as u8)
+    }
+}
+impl TryFrom<RionField<'_>> for i32 {
+    type Error = Box<dyn Error>;
+    fn try_from(value: RionField<'_>) -> std::result::Result<Self, Self::Error> {
+        let value = i64::try_from(value)?;
+        if value < i32::MIN as i64 || value > i32::MAX as i64 {
+            return Err("Value is too large for i32".into());
+        }
+        Ok(value as i32)
+    }
+}
+impl TryFrom<RionField<'_>> for i16 {
+    type Error = Box<dyn Error>;
+    fn try_from(value: RionField<'_>) -> std::result::Result<Self, Self::Error> {
+        let value = i64::try_from(value)?;
+        if value < i16::MIN as i64 || value > i16::MAX as i64 {
+            return Err("Value is too large for i16".into());
+        }
+        Ok(value as i16)
+    }
+}
+impl TryFrom<RionField<'_>> for i8 {
+    type Error = Box<dyn Error>;
+    fn try_from(value: RionField<'_>) -> std::result::Result<Self, Self::Error> {
+        let value = i64::try_from(value)?;
+        if value < i8::MIN as i64 || value > i8::MAX as i64 {
+            return Err("Value is too large for i8".into());
+        }
+        Ok(value as i8)
+    }
+}
+
+impl TryFrom<RionField<'_>> for f32 {
+    type Error = Box<dyn Error>;
+    fn try_from(value: RionField<'_>) -> Result<Self> {
+        match value {
+            RionField::Short(short) => short
+                .as_f32()
+                .ok_or_else(|| format!("Field is not a f32: {:?}", short).into()),
+            _ => Err("Field is not a f32".into()),
+        }
+    }
+}
+
+impl TryFrom<RionField<'_>> for f64 {
+    type Error = Box<dyn std::error::Error>;
+    fn try_from(value: RionField<'_>) -> Result<Self> {
+        match value {
+            RionField::Short(short) => short
+                .as_f64()
+                .ok_or_else(|| format!("Field is not a f64: {:?}", short).into()),
+            _ => Err("Field is not a f64".into()),
+        }
+    }
+}
+
+// impl<'a> TryFrom<RionField<'a>> for &'a str {
+//     type Error = Box<dyn std::error::Error>;
+
+//     fn try_from(value: RionField<'a>) -> std::result::Result<Self, Self::Error> {
+//         match value {
+//             RionField::Short(short) => {
+//                 let str = short
+//                     .as_str()
+//                     .ok_or_else(|| format!("Field is not a string: {:?}", short))?;
+//                 Ok(str)
+//             }
+//             RionField::Normal(normal) => {
+//                 let str = normal
+//                     .as_str()
+//                     .ok_or_else(|| format!("Field is not a string: {:?}", normal))?;
+//                 Ok(str)
+//             }
+//             _ => Err("Field is not a string".into()),
+//         }
+//     }
+// }
+
+impl TryFrom<RionField<'_>> for String {
+    type Error = Box<dyn std::error::Error>;
+    fn try_from(value: RionField<'_>) -> Result<Self> {
+        match value {
+            RionField::Short(short) => {
+                let str = short
+                    .as_str()
+                    .ok_or_else(|| format!("Field is not a string: {:?}", short))?;
+                Ok(str.to_string())
+            }
+            RionField::Normal(normal) => {
+                let str = normal
+                    .as_str()
+                    .ok_or_else(|| format!("Field is not a string: {:?}", normal))?;
+                Ok(str.to_string())
+            }
+            _ => Err("Field is not a string".into()),
+        }
+    }
+}
+
+impl TryFrom<RionField<'_>> for char {
+    type Error = Box<dyn std::error::Error>;
+    fn try_from(value: RionField<'_>) -> Result<Self> {
+        let string: String = value.try_into()?;
+        string
+            .chars()
+            .next()
+            .ok_or_else(|| "String is empty".into())
+    }
+}
+
+impl TryFrom<RionField<'_>> for bool {
+    type Error = Box<dyn std::error::Error>;
+    fn try_from(value: RionField<'_>) -> Result<Self> {
+        match value {
+            RionField::Tiny(lead) => {
+                let value = lead.byte() & 0x0F;
+                if value == 0 {
+                    return Err("Field is null".into());
+                }
+                Ok(value == 2)
+            }
+            _ => Err("Field is not a boolean".into()),
+        }
+    }
+}
+// TODO Datetime into impl
