@@ -1,4 +1,7 @@
-use std::{error::Error, fmt::Display};
+use std::{
+    error::Error,
+    fmt::{Debug, Display},
+};
 
 use serde::{de::Visitor, forward_to_deserialize_any};
 
@@ -18,12 +21,24 @@ impl serde::de::Error for DeserializeError {
 }
 
 impl std::error::Error for DeserializeError {}
+impl Debug for DeserializeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self}")
+    }
+}
 impl Display for DeserializeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DeserializeError::Eod => write!(f, "end of available data!")?,
-            DeserializeError::InvalidData => write!(f, "invalid data!")?,
+            DeserializeError::InvalidData(data) => write!(f, "invalid data! {data:?}")?,
             DeserializeError::Custom(msg) => write!(f, "{}", msg)?,
+            DeserializeError::ExpectedNull => write!(f, "expected null")?,
+            DeserializeError::DataLength(expected, actual) => {
+                write!(f, "expected data length {expected}, but got {actual}")?
+            }
+            DeserializeError::InvalidType(expected, actual) => {
+                write!(f, "expected type {expected:?}, but got {actual:?}")?
+            }
         }
         Ok(())
     }
@@ -55,10 +70,13 @@ where
     T::deserialize(&mut deserializer)
 }
 
-#[derive(Debug)]
+// #[derive(Debug)]
 pub enum DeserializeError {
     Eod,
-    InvalidData,
+    DataLength(usize, usize),                  // Expected, Actual
+    InvalidType(RionFieldType, RionFieldType), // Expected, Actual
+    ExpectedNull,
+    InvalidData(Vec<u8>),
     Custom(String),
 }
 
@@ -72,8 +90,8 @@ impl<'de> Deserializer<'de> {
     }
 
     fn parse_next_field(&mut self) -> Result<RionField<'de>, DeserializeError> {
-        let (field, rest) =
-            RionField::parse(self.data).map_err(|_| DeserializeError::InvalidData)?;
+        let (field, rest) = RionField::parse(self.data)
+            .map_err(|_| DeserializeError::InvalidData(self.data.to_vec()))?;
         self.data = rest;
         Ok(field)
     }
@@ -101,7 +119,7 @@ impl<'de> Deserializer<'de> {
             }
             RionFieldType::Normal(NormalRionType::Array) => visitor.visit_seq(self),
             RionFieldType::Normal(NormalRionType::Object | NormalRionType::Table) => {
-                visitor.visit_map(self)
+                visitor.visit_map(self) // TODO: Properly handle table
             }
             RionFieldType::Tiny(lead) => visitor.visit_bool(lead.length() == 2),
             RionFieldType::Short(ShortRionType::Int64Negative) => {
@@ -117,13 +135,15 @@ impl<'de> Deserializer<'de> {
                 match short.data_len {
                     ..=4 => visitor.visit_f32(short.as_f32().unwrap()),
                     ..=8 => visitor.visit_f64(short.as_f64().unwrap()),
-                    _ => Err(DeserializeError::InvalidData),
+                    _ => Err(DeserializeError::DataLength(8, short.data_len as usize)),
                 }
             }
             RionFieldType::Short(ShortRionType::UTCDateTime) => {
                 todo!()
             }
-            _ => Err(DeserializeError::InvalidData),
+            _ => Err(DeserializeError::InvalidData(
+                field.to_data().unwrap_or_default().to_vec(),
+            )),
         }
     }
 }
@@ -254,6 +274,21 @@ mod tests {
         assert_eq!(value.address.street, "123 Main");
         assert_eq!(value.address.city, "Some");
     }
+
+    #[test]
+    fn test_deserialize_tuple() {
+        let data = vec![0xA1, 0x04, 0x21, 0x0A, 0x61, b'A']; // (10, 'A')
+        let value: (u8, char) = from_bytes(&data).unwrap();
+        assert_eq!(value, (10, 'A'));
+    }
+
+    // TODO Make deserialization of Vec<u8> accept Normal::Bytes as well, wasting a lot of space
+    #[test]
+    fn test_deserialize_bytes() {
+        let data = vec![0xA1, 0x0A, 0x21, 0x01, 0x21, 0x02, 0x21, 0x03, 0x21, 0x04, 0x21, 0x05];
+        let value: Vec<u8> = from_bytes(&data).unwrap();
+        assert_eq!(value, vec![1, 2, 3, 4, 5]);
+    }
 }
 
 impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
@@ -341,8 +376,12 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
         V: serde::de::Visitor<'de>,
     {
         let field = self.parse_next_field()?;
-        let RionFieldType::Normal(NormalRionType::Bytes) = field.field_type() else {
-            return Err(DeserializeError::InvalidData);
+        let field_type = field.field_type();
+        let RionFieldType::Normal(NormalRionType::Bytes) = field_type else {
+            return Err(DeserializeError::InvalidType(
+                RionFieldType::Normal(NormalRionType::Bytes),
+                field_type,
+            ));
         };
         visitor.visit_byte_buf(field.as_bytes().to_vec())
     }
@@ -370,7 +409,7 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
         if field.is_null() {
             visitor.visit_unit()
         } else {
-            Err(DeserializeError::InvalidData)
+            Err(DeserializeError::ExpectedNull)
         }
     }
 
@@ -402,12 +441,16 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
     {
         let (lead, length, rest) =
             crate::get_normal_header(self.data).map_err(|e| e.to_string())?;
-        let RionFieldType::Normal(NormalRionType::Array) = lead.field_type() else {
-            return Err(DeserializeError::InvalidData);
+        let field_type = lead.field_type();
+        let RionFieldType::Normal(NormalRionType::Array) = field_type else {
+            return Err(DeserializeError::InvalidType(
+                RionFieldType::Normal(NormalRionType::Array),
+                field_type,
+            ));
         };
         self.data = rest;
         if self.data.len() < length {
-            return Err(DeserializeError::InvalidData);
+            return Err(DeserializeError::DataLength(length, self.data.len()));
         }
         visitor.visit_seq(self)
     }
@@ -437,12 +480,16 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
     {
         let (lead, length, rest) =
             crate::get_normal_header(self.data).map_err(|e| e.to_string())?;
-        let RionFieldType::Normal(NormalRionType::Object) = lead.field_type() else {
-            return Err(DeserializeError::InvalidData);
+        let field_type = lead.field_type();
+        let RionFieldType::Normal(NormalRionType::Object) = field_type else {
+            return Err(DeserializeError::InvalidType(
+                RionFieldType::Normal(NormalRionType::Object),
+                field_type,
+            ));
         };
         self.data = rest;
         if self.data.len() < length {
-            return Err(DeserializeError::InvalidData);
+            return Err(DeserializeError::DataLength(length, self.data.len()));
         }
         visitor.visit_map(self)
     }
