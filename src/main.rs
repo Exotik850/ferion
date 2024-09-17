@@ -1,45 +1,69 @@
+use std::{error::Error, ffi::OsStr, path::Path};
+
 use ferion::*;
-fn main() -> Result<(), &'static str> {
+use serde_json::Value;
+fn main() -> Result<(), Box<dyn Error>> {
     // Create a sample RION object
-    let mut obj = RionObject::new();
-    obj.add_field("name", -1000i64);
-    // obj.add_field("age", 30u64);
-    // obj.add_field("is_student", true);
-    // obj.add_field("time", Utc::now());
-    // obj.add_field(
-    //     "age",
-    //     RionField {
-    //         field_type: RionFieldType::Int64Positive,
-    //         value: vec![30],
-    //     },
-    // );
-    // obj.add_field(
-    //     "is_student",
-    //     RionField {
-    //         field_type: RionFieldType::Boolean,
-    //         value: vec![1],
-    //     },
-    // );
+    let mut input = String::new();
 
-    // Encode the object
-    println!("Object: {:?}", obj);
-    let encoded = obj.encode();
-    println!("Encoded: {:?}", encoded);
+    loop {
+        println!("Enter a JSON object to be shown as RION (or 'exit' to quit):");
+        std::io::stdin()
+            .read_line(&mut input)
+            .map_err(|_| "Failed to read line")?;
+        // let trim_inp = input.trim();
+        if input.trim().eq_ignore_ascii_case("exit") {
+            break;
+        }
 
-    // let decoded = RionField::from_slice(&encoded).unwrap();
-    // let (decoded, rest) = RionField::parse(&encoded).unwrap();
-    // println!("Decoded: {:?}", decoded);
-    // assert!(rest.is_empty());
+        let path = Path::new(input.trim());
+        println!("{:?}", path.extension().and_then(OsStr::to_str));
+        let is_json = path.extension().and_then(OsStr::to_str) == Some("json");
+        if is_json {
+            println!("This is json file");
+        }
+        if is_json && path.try_exists().unwrap() {
+            println!("Found file!");
+            let contents = std::fs::read_to_string(path).map_err(|_| "Failed to read file")?;
+            input = contents;
+        }
+        let input_len = input.len();
+        println!(
+            "Input (len {input_len}) : {}{}",
+            input.lines().take(10).collect::<Vec<_>>().join("\n"),
+            if input.lines().count() > 10 {
+                "\n..."
+            } else {
+                ""
+            }
+        );
+        // Convert the input JSON string to RION
+        let value: Value = match serde_json::from_str(&input) {
+            Ok(v) => v,
+            Err(_) => {
+                println!("Invalid JSON. Please try again.");
+                input.clear();
+                continue;
+            }
+        };
 
-    let decoded_obj = RionObject::from_slice(&encoded).unwrap();
-    println!("Final Object: {:?}", obj);
-    // Decode the object
-    // let decoded = RionObject::decode(&encoded)?;
-    // println!("Decoded: {:?}", decoded);
+        let rion_bytes = match crate::to_bytes(&value) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                println!("Failed to convert to RION {e}. Please try again.");
+                input.clear();
+                continue;
+            }
+        };
 
-    // Verify that the decoded object matches the original
-    assert_eq!(obj, decoded_obj);
-    println!("Encoding and decoding successful!");
+        // Display the RION bytes
+        println!("RION bytes: {:x?}", &rion_bytes);
+        let decoded_value: Value = crate::from_bytes(&rion_bytes)
+            .map_err(|e| format!("Failed to convert back from RION: {e}"))?;
+        println!("Decoded!");
+        assert_eq!(value, decoded_value);
+        input.clear();
+    }
 
     Ok(())
 }

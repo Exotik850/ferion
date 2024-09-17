@@ -4,10 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bytemuck = "1.18.0"
+# bytemuck = "1.18.0"
 chrono = { version = "0.4.38", default-features = true }
 num-bigint = "0.4.6"
 serde = { version = "1.0.210", optional = true }
+serde_json = "1.0.128"
 # const-slice = "0.1.0"
 # smallvec = "1.13.2"
 
@@ -17,4 +18,5 @@ serde = { version = "1.0.210", features = ["derive"] }
 
 
 [features]
+default = ["serde"]
 serde = ["dep:serde"]

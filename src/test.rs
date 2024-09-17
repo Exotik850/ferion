@@ -93,7 +93,7 @@ mod rion_field {
     fn test_encode_decode() {
         let original = RionField::from("Test");
         let mut encoded = Vec::new();
-        original.encode(&mut encoded).unwrap();
+        original.write(&mut encoded).unwrap();
         let decoded = RionField::from_slice(&encoded).unwrap();
         assert_eq!(original, decoded);
     }

@@ -1,6 +1,5 @@
 use crate::{
-    types::{LeadByte, NormalRionType, RionFieldType},
-    Result, RionField,
+    num_needed_length, types::{LeadByte, NormalRionType, RionFieldType}, Result, RionField
 };
 
 #[cfg(test)]
@@ -45,6 +44,7 @@ mod test {
 #[derive(Debug, PartialEq)]
 pub struct RionArray<'a> {
     pub elements: Vec<RionField<'a>>,
+    byte_len: usize,
 }
 
 impl<'a> Default for RionArray<'a> {
@@ -57,7 +57,19 @@ impl<'a> RionArray<'a> {
     pub fn new() -> Self {
         RionArray {
             elements: Vec::new(),
+            byte_len: 0,
         }
+    }
+
+    pub(crate) fn parse_rest(mut data: &'a [u8]) -> Result<Self> {
+        let mut elements = vec![];
+        let byte_len = data.len();
+        while data.len() > 0 {
+            let (element, rest) = RionField::parse(data)?;
+            data = rest;
+            elements.push(element);
+        }
+        Ok(RionArray { elements, byte_len  })
     }
 
     pub fn from_slice(data: &'a [u8]) -> Result<Self> {
@@ -69,49 +81,56 @@ impl<'a> RionArray<'a> {
     }
 
     fn parse(data: &'a [u8]) -> Result<(Self, &[u8])> {
-        let (lead, length, mut rest) = crate::get_normal_header(data)?;
+        let (lead, length, rest) = crate::get_normal_header(data)?;
         let RionFieldType::Normal(NormalRionType::Array) = lead.field_type() else {
             return Err("Expected a RION array".into());
         };
-        let total = rest.len();
-        let mut elements = Vec::with_capacity(length);
-        while total - rest.len() < length {
-            let (element, new_rest) = RionField::parse(rest)?;
-            rest = new_rest;
-            elements.push(element);
-        }
+        // let total = rest.len();
+        // let mut elements = Vec::with_capacity(length);
+        // while total - rest.len() < length {
+        //     let (element, new_rest) = RionField::parse(rest)?;
+        //     rest = new_rest;
+        //     elements.push(element);
+        // }
+        let elements = Self::parse_rest(&rest[..length])?;
+        Ok((elements, &rest[length..]))
 
-        Ok((RionArray { elements }, rest))
+        // Ok((RionArray { elements }, rest))
     }
 
     pub fn add_element(&mut self, element: impl Into<RionField<'a>>) {
-        self.elements.push(element.into());
+        let element = element.into();
+        self.byte_len += element.needed_bytes();
+        self.elements.push(element);
+    }
+
+    pub(crate) fn write_header(&self, writer: &mut impl std::io::Write) -> Result<()> {
+        let length_length = num_needed_length(self.byte_len);
+        if length_length > 15 {
+            println!("Warning: Array length field is too long, truncating to 15 bytes");
+        }
+        let lead_byte = LeadByte::from_type(RionFieldType::Normal(NormalRionType::Array), length_length as u8);
+        writer.write_all(&[lead_byte.byte()])?;
+        writer.write_all(&self.byte_len.to_be_bytes()[usize::BITS as usize / 8 - length_length..])?;
+        Ok(())
+    }
+    // writer.write(&[]);
+
+    pub fn write(&self, writer: &mut impl std::io::Write) -> Result<()> {
+        self.write_header(writer)?;
+        self.write_body(writer)
+    }
+
+    pub(crate) fn write_body(&self, writer: &mut impl std::io::Write) -> Result<()>{
+        for element in &self.elements {
+            element.write(writer)?;
+        }
+        Ok(())
     }
 
     pub fn encode(&self) -> Vec<u8> {
-        if self.elements.is_empty() {
-            return vec![
-                LeadByte::from_type(RionFieldType::Normal(NormalRionType::Array), 0).byte(),
-            ];
-        }
-
-        let mut content = Vec::new();
-        for element in &self.elements {
-            element.encode(&mut content).unwrap();
-        }
-        let content_len = content.len();
-        // number of bytes needed to encode the length
-        let length_length = content_len.div_ceil(64);
-        if length_length > 15 {
-            println!("Warning: Object length field is too long, truncating to 15 bytes");
-        }
-        println!("Content length: {content_len} - Num Bytes {length_length}");
-        let length_bytes = content_len.to_be_bytes();
-        let mut encoded = Vec::with_capacity(1 + content_len + length_length);
-        encoded.push(0xA0 | length_length as u8 & 0x0F);
-        // Add only the necessary bytes
-        encoded.extend_from_slice(&length_bytes[8 - length_length..]);
-        encoded.extend(content);
+        let mut encoded = Vec::new();
+        self.write(&mut encoded).unwrap();
         encoded
     }
 }

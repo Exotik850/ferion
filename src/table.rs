@@ -77,7 +77,7 @@ mod test {
 
         let result = RionTable::parse(&data);
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err().to_string(), "Expected a short field, found Normal(NormalField { field_type: UTF8, length_length: 0, data: [] })");
+        assert_eq!(result.unwrap_err().to_string(), "Expected a short field, found Normal(NormalField { field_type: UTF8, data: [] })");
     }
 
     #[test]

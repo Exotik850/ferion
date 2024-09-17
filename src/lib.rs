@@ -1,3 +1,5 @@
+#![feature(min_specialization)]
+
 use std::error::Error;
 mod array;
 mod field;
@@ -42,7 +44,9 @@ fn get_header(data: &[u8]) -> Result<(LeadByte, &[u8], &[u8])> {
 }
 
 fn bytes_to_num<T>(bytes: &[u8]) -> Result<T>
-where T: TryFrom<BigUint> {
+where
+    T: TryFrom<BigUint>,
+{
     let length = BigUint::from_bytes_be(bytes);
     let data_len: T = length
         .try_into()
@@ -69,11 +73,12 @@ fn get_normal_header(data: &[u8]) -> Result<(LeadByte, usize, &[u8])> {
     Ok((lead, data_len, rest))
 }
 
-fn _num_needed_length(length: usize) -> Result<usize> {
-    let length_length = length.div_ceil(64);
-    if length_length > 15 {
-        return Err("Data too large for RION object".into());
+fn num_needed_length(length: usize) -> usize {
+    if length == 0 {
+        return 0;
     }
-    println!("Length length: {length_length}");
-    Ok(length_length)
+    if length == 1 {
+        return 1;
+    }
+    (length.ilog2() as usize).div_ceil(8)
 }

@@ -37,9 +37,10 @@ impl Display for DeserializeError {
             DeserializeError::InvalidData(data) => write!(f, "invalid data! {data:?}")?,
             DeserializeError::Custom(msg) => write!(f, "{}", msg)?,
             DeserializeError::ExpectedNull => write!(f, "expected null")?,
-            DeserializeError::DataLength(expected, actual) => {
-                write!(f, "expected data length {expected}, but got {actual}")?
-            }
+            DeserializeError::DataLength(expected, actual, field_type) => write!(
+                f,
+                "expected data length {expected}, but got {actual} for field_type {field_type:?}"
+            )?,
             DeserializeError::InvalidType(expected, actual) => {
                 write!(f, "expected type {expected:?}, but got {actual:?}")?
             }
@@ -77,7 +78,7 @@ where
 // #[derive(Debug)]
 pub enum DeserializeError {
     Eod,
-    DataLength(usize, usize),                  // Expected, Actual
+    DataLength(usize, usize, RionFieldType), // Expected, Actual
     InvalidType(RionFieldType, RionFieldType), // Expected, Actual
     ExpectedNull,
     InvalidData(Vec<u8>),
@@ -165,14 +166,28 @@ impl<'de> Deserializer<'de> {
         length: &[u8],
         visitor: V,
     ) -> Result<V::Value, DeserializeError> {
-        let len_data: usize = bytes_to_num(length)?;
+        let len_data = bytes_to_num(length)?;
         if len_data > self.data.len() {
-            return Err(DeserializeError::DataLength(len_data, self.data.len()));
+            return Err(DeserializeError::DataLength(
+                len_data,
+                self.data.len(),
+                normal.into(),
+            ));
         }
         let field_data = &self.data[..len_data];
         match normal {
-            NormalRionType::Array => visitor.visit_seq(self),
-            NormalRionType::Object => visitor.visit_map(self),
+            NormalRionType::Array => {
+                println!("Visiting seq");
+                visitor.visit_seq(SizedDeserializer {
+                    data: &mut Deserializer::new(field_data),
+                })
+            }
+            NormalRionType::Object => {
+                println!("Visiting map");
+                visitor.visit_map(SizedDeserializer {
+                    data: &mut Deserializer::new(field_data),
+                })
+            }
             NormalRionType::Key | NormalRionType::UTF8 => {
                 self.deserialize_string(field_data, visitor)
             }
@@ -199,9 +214,19 @@ impl<'de> Deserializer<'de> {
                 visitor.visit_i64(val)
             }
             ShortRionType::Float => match length.len() {
-                ..=4 => visitor.visit_f32(f32::from_be_bytes(length.try_into().unwrap())),
-                ..=8 => visitor.visit_f64(f64::from_be_bytes(length.try_into().unwrap())),
-                _ => Err(DeserializeError::DataLength(8, length.len())),
+                ..=4 => {
+                    let Ok(bytes) = length.try_into() else {
+                        return Err(DeserializeError::InvalidData(length.to_vec()));
+                    };
+                    visitor.visit_f32(f32::from_be_bytes(bytes))
+                }
+                ..=8 => {
+                    let Ok(bytes) = length.try_into() else {
+                        return Err(DeserializeError::InvalidData(length.to_vec()));
+                    };
+                    visitor.visit_f64(f64::from_be_bytes(bytes))
+                }
+                _ => Err(DeserializeError::DataLength(8, length.len(), short.into())),
             },
             ShortRionType::UTCDateTime => todo!(),
         }
@@ -238,7 +263,7 @@ impl<'de> Deserializer<'de> {
             .flatten()
     }
 
-    fn deserialize_field<V>(&mut self, visitor: V) -> Result<V::Value, DeserializeError>
+    pub fn deserialize_field<V>(&mut self, visitor: V) -> Result<V::Value, DeserializeError>
     where
         V: Visitor<'de>,
     {
@@ -252,7 +277,7 @@ impl<'de> Deserializer<'de> {
             other => match other {
                 RionFieldType::Short(short) => self.deserialize_short(short, length, visitor),
                 RionFieldType::Normal(normal) => self.deserialize_normal(normal, length, visitor),
-                _ => unreachable!(),
+                _ => unimplemented!(),
             },
         }
     }
@@ -268,56 +293,61 @@ impl<'de> Deserializer<'de> {
     where
         T: TryFrom<RionField<'de>, Error: Display>,
     {
+        println!("Parsing field for type {}", std::any::type_name::<T>());
         let field = self.parse_next_field()?;
-        println!("{:?}", field);
         Ok(field
             .try_into()
             .map_err(|e: T::Error| DeserializeError::Custom(e.to_string()))?)
     }
 
-    fn visit_field<V>(
-        &mut self,
-        field: RionField<'de>,
-        visitor: V,
-    ) -> Result<V::Value, DeserializeError>
-    where
-        V: Visitor<'de>,
-    {
-        match field.field_type() {
-            RionFieldType::Normal(NormalRionType::Bytes) => todo!(),
-            RionFieldType::Normal(NormalRionType::UTF8 | NormalRionType::Key)
-            | RionFieldType::Short(ShortRionType::Key | ShortRionType::UTF8) => {
-                visitor.visit_str(field.as_str().unwrap())
-            }
-            RionFieldType::Normal(NormalRionType::Array) => visitor.visit_seq(self),
-            RionFieldType::Normal(NormalRionType::Object | NormalRionType::Table) => {
-                visitor.visit_map(self) // TODO: Properly handle table
-            }
-            RionFieldType::Tiny(lead) => visitor.visit_bool(lead.length() == 2),
-            RionFieldType::Short(ShortRionType::Int64Negative) => {
-                visitor.visit_i64(field.try_into().unwrap())
-            }
-            RionFieldType::Short(ShortRionType::Int64Positive) => {
-                visitor.visit_u64(field.try_into().unwrap())
-            }
-            RionFieldType::Short(ShortRionType::Float) => {
-                let RionField::Short(short) = field else {
-                    unreachable!()
-                };
-                match short.data_len {
-                    ..=4 => visitor.visit_f32(short.as_f32().unwrap()),
-                    ..=8 => visitor.visit_f64(short.as_f64().unwrap()),
-                    _ => Err(DeserializeError::DataLength(8, short.data_len as usize)),
-                }
-            }
-            RionFieldType::Short(ShortRionType::UTCDateTime) => {
-                todo!()
-            }
-            _ => Err(DeserializeError::InvalidData(
-                field.to_data().unwrap_or_default().to_vec(),
-            )),
-        }
-    }
+    // fn visit_field<V>(
+    //     &mut self,
+    //     field: RionField<'de>,
+    //     visitor: V,
+    // ) -> Result<V::Value, DeserializeError>
+    // where
+    //     V: Visitor<'de>,
+    // {
+    //     let length = field.length() as u;
+    //     match field.field_type() {
+    //         RionFieldType::Normal(NormalRionType::Bytes) => todo!(),
+    //         RionFieldType::Normal(NormalRionType::UTF8 | NormalRionType::Key)
+    //         | RionFieldType::Short(ShortRionType::Key | ShortRionType::UTF8) => {
+    //             visitor.visit_str(field.as_str().unwrap())
+    //         }
+    //         RionFieldType::Normal(NormalRionType::Array) => visitor.visit_seq(self),
+    //         RionFieldType::Normal(NormalRionType::Object | NormalRionType::Table) => {
+    //             visitor.visit_map(self) // TODO: Properly handle table
+    //         }
+    //         RionFieldType::Tiny(lead) => visitor.visit_bool(lead.length() == 2),
+    //         RionFieldType::Short(ShortRionType::Int64Negative) => {
+    //             visitor.visit_i64(field.try_into().unwrap())
+    //         }
+    //         RionFieldType::Short(ShortRionType::Int64Positive) => {
+    //             visitor.visit_u64(field.try_into().unwrap())
+    //         }
+    //         RionFieldType::Short(ShortRionType::Float) => {
+    //             let RionField::Short(short) = field else {
+    //                 unreachable!()
+    //             };
+    //             match short.data.len() {
+    //                 ..=4 => visitor.visit_f32(short.as_f32().unwrap()),
+    //                 ..=8 => visitor.visit_f64(short.as_f64().unwrap()),
+    //                 _ => Err(DeserializeError::DataLength(
+    //                     8,
+    //                     short.data.len(),
+    //                     ShortRionType::Float.into(),
+    //                 )),
+    //             }
+    //         }
+    //         RionFieldType::Short(ShortRionType::UTCDateTime) => {
+    //             todo!()
+    //         }
+    //         _ => Err(DeserializeError::InvalidData(
+    //             field.to_data().unwrap_or_default().to_vec(),
+    //         )),
+    //     }
+    // }
 }
 
 #[cfg(test)]
@@ -406,7 +436,7 @@ mod tests {
     #[test]
     fn test_deserialize_struct() {
         let data = vec![
-            0xC1, 0x10, // Start of object
+            0xC1, 0x11, // Start of object
             0xE4, b'n', b'a', b'm', b'e', 0x65, b'A', b'l', b'i', b'c', b'e', // name: "Alice"
             0xE3, b'a', b'g', b'e', 0x21, 0x1E, // age: 30
         ];
@@ -579,38 +609,52 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
     }
 }
 
-impl<'de, 'a> serde::de::SeqAccess<'de> for &'a mut Deserializer<'de> {
+struct SizedDeserializer<'a, 'de> {
+    data: &'a mut Deserializer<'de>,
+}
+
+impl<'a, 'de> SizedDeserializer<'a, 'de> {
+    fn size_hint(&self) -> Option<usize> {
+        Some(self.data.data.len())
+    }
+}
+
+impl<'de, 'a> serde::de::SeqAccess<'de> for SizedDeserializer<'a, 'de> {
     type Error = DeserializeError;
 
     fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
     where
         T: serde::de::DeserializeSeed<'de>,
     {
-        if self.data.is_empty() {
+        if self.data.data.is_empty() {
             return Ok(None);
         }
-        let value = seed.deserialize(&mut **self)?;
+        let value = seed.deserialize(&mut *self.data)?;
         Ok(Some(value))
+    }
+
+    fn size_hint(&self) -> Option<usize> {
+        self.size_hint()
     }
 }
 
-impl<'de, 'a> serde::de::MapAccess<'de> for &'a mut Deserializer<'de> {
+impl<'de, 'a> serde::de::MapAccess<'de> for SizedDeserializer<'a, 'de> {
     type Error = DeserializeError;
 
     fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
     where
         K: serde::de::DeserializeSeed<'de>,
     {
-        if self.data.is_empty() {
+        if self.data.data.is_empty() {
             return Ok(None);
         }
         // If the next byte is not a key, return None
-        let field_val = self.data[0] & 0xF0;
+        let field_val = self.data.data[0] & 0xF0;
         let field_type = RionFieldType::try_from(field_val)?;
         if !field_type.is_key() {
             return Ok(None);
         }
-        let key = seed.deserialize(&mut **self)?;
+        let key = seed.deserialize(&mut *self.data)?;
         Ok(Some(key))
     }
 
@@ -618,7 +662,7 @@ impl<'de, 'a> serde::de::MapAccess<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::DeserializeSeed<'de>,
     {
-        let value = seed.deserialize(&mut **self)?;
+        let value = seed.deserialize(&mut *self.data)?;
         Ok(value)
     }
 }
