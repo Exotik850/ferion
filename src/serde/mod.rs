@@ -1,5 +1,5 @@
 mod deserializer;
 mod serializer;
 
-pub use deserializer::{DeserializeError, Deserializer, from_bytes};
-pub use serializer::{Serializer, to_bytes};
+pub use deserializer::{from_bytes, DeserializeError, Deserializer};
+pub use serializer::{to_bytes, Serializer};

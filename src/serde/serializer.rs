@@ -17,6 +17,12 @@ pub struct Serializer {
     output: Vec<u8>,
 }
 
+impl Default for Serializer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Serializer {
     pub fn new() -> Self {
         Self { output: Vec::new() }
@@ -24,7 +30,8 @@ impl Serializer {
 
     pub fn serialize_key(&mut self, key: &[u8]) -> Result<(), Error> {
         let field = RionField::key(key);
-        Ok(field.encode(&mut self.output).unwrap())
+        field.encode(&mut self.output).unwrap();
+        Ok(())
     }
 }
 
@@ -165,7 +172,8 @@ impl<'a> serde::Serializer for &'a mut Serializer {
 
     fn serialize_bool(self, v: bool) -> Result<Self::Ok, Self::Error> {
         let field = RionField::bool(v);
-        Ok(field.encode(&mut self.output).unwrap())
+        field.encode(&mut self.output).unwrap();
+        Ok(())
     }
     fn serialize_i8(self, v: i8) -> Result<Self::Ok, Self::Error> {
         self.serialize_i64(v as i64)
@@ -179,7 +187,8 @@ impl<'a> serde::Serializer for &'a mut Serializer {
 
     fn serialize_i64(self, v: i64) -> Result<Self::Ok, Self::Error> {
         let field = RionField::int64(v);
-        Ok(field.encode(&mut self.output).unwrap())
+        field.encode(&mut self.output).unwrap();
+        Ok(())
     }
 
     fn serialize_u8(self, v: u8) -> Result<Self::Ok, Self::Error> {
@@ -196,17 +205,20 @@ impl<'a> serde::Serializer for &'a mut Serializer {
 
     fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
         let field = RionField::uint64(v);
-        Ok(field.encode(&mut self.output).unwrap())
+        field.encode(&mut self.output).unwrap();
+        Ok(())
     }
 
     fn serialize_f32(self, v: f32) -> Result<Self::Ok, Self::Error> {
         let field = RionField::f32(v);
-        Ok(field.encode(&mut self.output).unwrap())
+        field.encode(&mut self.output).unwrap();
+        Ok(())
     }
 
     fn serialize_f64(self, v: f64) -> Result<Self::Ok, Self::Error> {
         let field = RionField::f64(v);
-        Ok(field.encode(&mut self.output).unwrap())
+        field.encode(&mut self.output).unwrap();
+        Ok(())
     }
 
     fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
@@ -215,12 +227,14 @@ impl<'a> serde::Serializer for &'a mut Serializer {
 
     fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
         let field = RionField::from_str(v);
-        Ok(field.encode(&mut self.output).unwrap())
+        field.encode(&mut self.output).unwrap();
+        Ok(())
     }
 
     fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
         let field = RionField::bytes(v);
-        Ok(field.encode(&mut self.output).unwrap())
+        field.encode(&mut self.output).unwrap();
+        Ok(())
     }
 
     fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
@@ -393,7 +407,7 @@ impl SerializeMap for SizedSerializer<'_> {
             }
             _ => return Err(Error),
         }
-        return Ok(());
+        Ok(())
     }
 
     fn serialize_value<T>(&mut self, value: &T) -> Result<(), Self::Error>

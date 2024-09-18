@@ -104,7 +104,6 @@ impl<'a> From<RionObject<'a>> for RionField<'a> {
         }
         RionField::Normal(NormalField {
             field_type: NormalRionType::Object,
-            length_length: content.len().div_ceil(64) as u8,
             data: content.into(),
         })
     }

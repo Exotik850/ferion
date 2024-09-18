@@ -1,6 +1,7 @@
 use std::{
     error::Error,
     fmt::{Debug, Display},
+    ops::{Deref, DerefMut},
 };
 
 use serde::{
@@ -126,7 +127,7 @@ impl<'a, 'de> serde::Deserializer<'de> for &'a mut BytesDeserializer<'de> {
     }
 }
 
-impl<'a, 'de> SeqAccess<'de> for BytesDeserializer<'de> {
+impl<'de> SeqAccess<'de> for BytesDeserializer<'de> {
     type Error = DeserializeError;
     fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
     where
@@ -171,8 +172,12 @@ impl<'de> Deserializer<'de> {
         }
         let field_data = &self.data[..len_data];
         match normal {
-            NormalRionType::Array => visitor.visit_seq(self),
-            NormalRionType::Object => visitor.visit_map(self),
+            NormalRionType::Array => {
+                visitor.visit_seq(SizedDeserializer::new(&mut Deserializer::new(field_data)))
+            }
+            NormalRionType::Object => {
+                visitor.visit_map(SizedDeserializer::new(&mut Deserializer::new(field_data)))
+            }
             NormalRionType::Key | NormalRionType::UTF8 => {
                 self.deserialize_string(field_data, visitor)
             }
@@ -200,7 +205,7 @@ impl<'de> Deserializer<'de> {
             }
             ShortRionType::Float => match length.len() {
                 ..=4 => visitor.visit_f32(f32::from_be_bytes(length.try_into().unwrap())),
-                ..=8 => visitor.visit_f64(f64::from_be_bytes(length.try_into().unwrap())),
+                5..=8 => visitor.visit_f64(f64::from_be_bytes(length.try_into().unwrap())),
                 _ => Err(DeserializeError::DataLength(8, length.len())),
             },
             ShortRionType::UTCDateTime => todo!(),
@@ -213,7 +218,7 @@ impl<'de> Deserializer<'de> {
         Self { data }
     }
 
-    pub fn next(&mut self) -> Option<u8> {
+    pub fn next_byte(&mut self) -> Option<u8> {
         if self.data.is_empty() {
             return None;
         }
@@ -234,15 +239,14 @@ impl<'de> Deserializer<'de> {
             .first()
             .copied()
             .map(LeadByte::try_from)
-            .map(Result::ok)
-            .flatten()
+            .and_then(Result::ok)
     }
 
     fn deserialize_field<V>(&mut self, visitor: V) -> Result<V::Value, DeserializeError>
     where
         V: Visitor<'de>,
     {
-        let (lead, length, rest) = get_header(&self.data)?;
+        let (lead, length, rest) = get_header(self.data)?;
         if lead.is_null() {
             return visitor.visit_none();
         }
@@ -270,54 +274,54 @@ impl<'de> Deserializer<'de> {
     {
         let field = self.parse_next_field()?;
         println!("{:?}", field);
-        Ok(field
+        field
             .try_into()
-            .map_err(|e: T::Error| DeserializeError::Custom(e.to_string()))?)
+            .map_err(|e: T::Error| DeserializeError::Custom(e.to_string()))
     }
 
-    fn visit_field<V>(
-        &mut self,
-        field: RionField<'de>,
-        visitor: V,
-    ) -> Result<V::Value, DeserializeError>
-    where
-        V: Visitor<'de>,
-    {
-        match field.field_type() {
-            RionFieldType::Normal(NormalRionType::Bytes) => todo!(),
-            RionFieldType::Normal(NormalRionType::UTF8 | NormalRionType::Key)
-            | RionFieldType::Short(ShortRionType::Key | ShortRionType::UTF8) => {
-                visitor.visit_str(field.as_str().unwrap())
-            }
-            RionFieldType::Normal(NormalRionType::Array) => visitor.visit_seq(self),
-            RionFieldType::Normal(NormalRionType::Object | NormalRionType::Table) => {
-                visitor.visit_map(self) // TODO: Properly handle table
-            }
-            RionFieldType::Tiny(lead) => visitor.visit_bool(lead.length() == 2),
-            RionFieldType::Short(ShortRionType::Int64Negative) => {
-                visitor.visit_i64(field.try_into().unwrap())
-            }
-            RionFieldType::Short(ShortRionType::Int64Positive) => {
-                visitor.visit_u64(field.try_into().unwrap())
-            }
-            RionFieldType::Short(ShortRionType::Float) => {
-                let RionField::Short(short) = field else {
-                    unreachable!()
-                };
-                match short.data_len {
-                    ..=4 => visitor.visit_f32(short.as_f32().unwrap()),
-                    ..=8 => visitor.visit_f64(short.as_f64().unwrap()),
-                    _ => Err(DeserializeError::DataLength(8, short.data_len as usize)),
-                }
-            }
-            RionFieldType::Short(ShortRionType::UTCDateTime) => {
-                todo!()
-            }
-            _ => Err(DeserializeError::InvalidData(
-                field.to_data().unwrap_or_default().to_vec(),
-            )),
-        }
-    }
+    // fn visit_field<V>(
+    //     &mut self,
+    //     field: RionField<'de>,
+    //     visitor: V,
+    // ) -> Result<V::Value, DeserializeError>
+    // where
+    //     V: Visitor<'de>,
+    // {
+    //     match field.field_type() {
+    //         RionFieldType::Normal(NormalRionType::Bytes) => todo!(),
+    //         RionFieldType::Normal(NormalRionType::UTF8 | NormalRionType::Key)
+    //         | RionFieldType::Short(ShortRionType::Key | ShortRionType::UTF8) => {
+    //             visitor.visit_str(field.as_str().unwrap())
+    //         }
+    //         RionFieldType::Normal(NormalRionType::Array) => visitor.visit_seq(self),
+    //         RionFieldType::Normal(NormalRionType::Object | NormalRionType::Table) => {
+    //             visitor.visit_map(self) // TODO: Properly handle table
+    //         }
+    //         RionFieldType::Tiny(lead) => visitor.visit_bool(lead.length() == 2),
+    //         RionFieldType::Short(ShortRionType::Int64Negative) => {
+    //             visitor.visit_i64(field.try_into().unwrap())
+    //         }
+    //         RionFieldType::Short(ShortRionType::Int64Positive) => {
+    //             visitor.visit_u64(field.try_into().unwrap())
+    //         }
+    //         RionFieldType::Short(ShortRionType::Float) => {
+    //             let RionField::Short(short) = field else {
+    //                 unreachable!()
+    //             };
+    //             match short.data_len {
+    //                 ..=4 => visitor.visit_f32(short.as_f32().unwrap()),
+    //                 ..=8 => visitor.visit_f64(short.as_f64().unwrap()),
+    //                 _ => Err(DeserializeError::DataLength(8, short.data_len as usize)),
+    //             }
+    //         }
+    //         RionFieldType::Short(ShortRionType::UTCDateTime) => {
+    //             todo!()
+    //         }
+    //         _ => Err(DeserializeError::InvalidData(
+    //             field.to_data().unwrap_or_default().to_vec(),
+    //         )),
+    //     }
+    // }
 }
 
 #[cfg(test)]
@@ -406,7 +410,7 @@ mod tests {
     #[test]
     fn test_deserialize_struct() {
         let data = vec![
-            0xC1, 0x10, // Start of object
+            0xC1, 0x11, // Start of object
             0xE4, b'n', b'a', b'm', b'e', 0x65, b'A', b'l', b'i', b'c', b'e', // name: "Alice"
             0xE3, b'a', b'g', b'e', 0x21, 0x1E, // age: 30
         ];
@@ -454,7 +458,6 @@ mod tests {
         assert_eq!(value, (10, 'A'));
     }
 
-    // TODO Make deserialization of Vec<u8> accept Normal::Bytes as well, wasting a lot of space atm
     #[test]
     fn test_deserialize_bytes() {
         let data = vec![
@@ -555,7 +558,7 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        let Some(first) = self.data.get(0) else {
+        let Some(first) = self.data.first() else {
             return Err(DeserializeError::Eod);
         };
         let lead = LeadByte::try_from(*first)?;
@@ -579,7 +582,30 @@ impl<'de, 'a> serde::Deserializer<'de> for &'a mut Deserializer<'de> {
     }
 }
 
-impl<'de, 'a> serde::de::SeqAccess<'de> for &'a mut Deserializer<'de> {
+impl<'de> Deref for SizedDeserializer<'_, 'de> {
+    type Target = Deserializer<'de>;
+    fn deref(&self) -> &Self::Target {
+        self.serializer
+    }
+}
+
+impl DerefMut for SizedDeserializer<'_, '_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.serializer
+    }
+}
+
+struct SizedDeserializer<'a, 'de> {
+    serializer: &'a mut Deserializer<'de>,
+}
+
+impl<'a, 'de> SizedDeserializer<'a, 'de> {
+    fn new(serializer: &'a mut Deserializer<'de>) -> Self {
+        Self { serializer }
+    }
+}
+
+impl<'de, 'a> serde::de::SeqAccess<'de> for SizedDeserializer<'a, 'de> {
     type Error = DeserializeError;
 
     fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
@@ -594,7 +620,7 @@ impl<'de, 'a> serde::de::SeqAccess<'de> for &'a mut Deserializer<'de> {
     }
 }
 
-impl<'de, 'a> serde::de::MapAccess<'de> for &'a mut Deserializer<'de> {
+impl<'de, 'a> serde::de::MapAccess<'de> for SizedDeserializer<'a, 'de> {
     type Error = DeserializeError;
 
     fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
