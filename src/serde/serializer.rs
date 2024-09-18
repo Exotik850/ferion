@@ -1,4 +1,4 @@
-use std::fmt::Error;
+use std::error::Error;
 
 use serde::{
     ser::{
@@ -9,6 +9,7 @@ use serde::{
 };
 
 use crate::{
+    num_needed_length,
     types::{LeadByte, NormalRionType, RionFieldType, ShortRionType},
     RionField,
 };
@@ -28,7 +29,7 @@ impl Serializer {
         Self { output: Vec::new() }
     }
 
-    pub fn serialize_key(&mut self, key: &[u8]) -> Result<(), Error> {
+    pub fn serialize_key(&mut self, key: &[u8]) -> Result<(), SerializeError> {
         let field = RionField::key(key);
         field.encode(&mut self.output).unwrap();
         Ok(())
@@ -96,7 +97,7 @@ mod test {
     }
 }
 
-pub fn to_bytes<T>(value: &T) -> Result<Vec<u8>, Error>
+pub fn to_bytes<T>(value: &T) -> Result<Vec<u8>, SerializeError>
 where
     T: RionSerialize,
 {
@@ -106,18 +107,18 @@ where
 }
 
 pub trait RionSerialize {
-    fn serialize(&self, serializer: &mut Serializer) -> Result<(), Error>;
+    fn serialize(&self, serializer: &mut Serializer) -> Result<(), SerializeError>;
 }
 
 #[cfg(feature = "specialization")]
 impl<T: Serialize> RionSerialize for T {
-    default fn serialize(&self, serializer: &mut Serializer) -> Result<(), Error> {
+    default fn serialize(&self, serializer: &mut Serializer) -> Result<(), SerializeError> {
         self.serialize(serializer)
     }
 }
 #[cfg(not(feature = "specialization"))]
 impl<T: Serialize> RionSerialize for T {
-    fn serialize(&self, serializer: &mut Serializer) -> Result<(), Error> {
+    fn serialize(&self, serializer: &mut Serializer) -> Result<(), SerializeError> {
         self.serialize(serializer)
     }
 }
@@ -159,9 +160,44 @@ impl RionSerialize for Vec<u8> {
     }
 }
 
+impl std::fmt::Display for SerializeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SerializeError::Custom(msg) => write!(f, "{}", msg),
+            SerializeError::InvalidType(rion_field_type) => {
+                write!(f, "Invalid type: {:?}", rion_field_type)
+            }
+            SerializeError::LengthOverflow(len) => {
+                write!(f, "Length overflow: {}", len)
+            }
+        }
+    }
+}
+impl Error for SerializeError {}
+impl serde::ser::Error for SerializeError {
+    fn custom<T>(msg: T) -> Self
+    where
+        T: std::fmt::Display,
+    {
+        SerializeError::Custom(msg.to_string())
+    }
+}
+impl From<Box<dyn Error>> for SerializeError {
+    fn from(err: Box<dyn Error>) -> Self {
+        SerializeError::Custom(err.to_string())
+    }
+}
+
+#[derive(Debug)]
+pub enum SerializeError {
+    Custom(String),
+    InvalidType(RionFieldType),
+    LengthOverflow(usize),
+}
+
 impl<'a> serde::Serializer for &'a mut Serializer {
     type Ok = ();
-    type Error = Error;
+    type Error = SerializeError;
     type SerializeSeq = SizedSerializer<'a>;
     type SerializeTuple = SizedSerializer<'a>;
     type SerializeTupleStruct = SizedSerializer<'a>;
@@ -349,7 +385,7 @@ impl<'a> serde::Serializer for &'a mut Serializer {
 
 impl<'a> SerializeTuple for SizedSerializer<'a> {
     type Ok = ();
-    type Error = Error;
+    type Error = SerializeError;
 
     fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
@@ -365,7 +401,7 @@ impl<'a> SerializeTuple for SizedSerializer<'a> {
 
 impl<'a> SerializeSeq for SizedSerializer<'a> {
     type Ok = ();
-    type Error = Error;
+    type Error = SerializeError;
 
     fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
@@ -382,7 +418,7 @@ impl<'a> SerializeSeq for SizedSerializer<'a> {
 
 impl SerializeMap for SizedSerializer<'_> {
     type Ok = ();
-    type Error = Error;
+    type Error = SerializeError;
 
     fn serialize_key<T>(&mut self, key: &T) -> Result<(), Self::Error>
     where
@@ -392,7 +428,7 @@ impl SerializeMap for SizedSerializer<'_> {
         let initial_len = self.temp.output.len();
         key.serialize(&mut self.temp)?;
         let lead = self.temp.output[initial_len];
-        let lead_byte = LeadByte::try_from(lead).map_err(|_| Error)?;
+        let lead_byte = LeadByte::try_from(lead)?;
         // If the first byte is not a Key field, throw an error
         let ft = lead_byte.field_type();
         match ft {
@@ -405,7 +441,7 @@ impl SerializeMap for SizedSerializer<'_> {
                 self.temp.output[initial_len] &= 0x0F;
                 self.temp.output[initial_len] |= ShortRionType::Key.to_byte() << 4;
             }
-            _ => return Err(Error),
+            _ => return Err(SerializeError::InvalidType(ft)),
         }
         Ok(())
     }
@@ -424,11 +460,11 @@ impl SerializeMap for SizedSerializer<'_> {
 }
 
 impl<'a> SizedSerializer<'a> {
-    fn finish(self, type_byte: u8) -> Result<(), Error> {
+    fn finish(self, type_byte: u8) -> Result<(), SerializeError> {
         let total_len = self.temp.output.len();
-        let len_bytes = total_len.div_ceil(64);
+        let len_bytes = num_needed_length(total_len);
         if len_bytes > 15 {
-            return Err(Error); // TODO handle error
+            return Err(SerializeError::LengthOverflow(len_bytes)); // TODO handle error
         }
         self.output
             .output
@@ -446,7 +482,7 @@ impl<'a> SizedSerializer<'a> {
 
 impl SerializeTupleStruct for SizedSerializer<'_> {
     type Ok = ();
-    type Error = Error;
+    type Error = SerializeError;
 
     fn serialize_field<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
@@ -462,7 +498,7 @@ impl SerializeTupleStruct for SizedSerializer<'_> {
 
 impl SerializeStruct for SizedSerializer<'_> {
     type Ok = ();
-    type Error = Error;
+    type Error = SerializeError;
 
     fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
     where
@@ -480,7 +516,7 @@ impl SerializeStruct for SizedSerializer<'_> {
 
 impl SerializeStructVariant for SizedSerializer<'_> {
     type Ok = ();
-    type Error = Error;
+    type Error = SerializeError;
 
     fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
     where
@@ -498,7 +534,7 @@ impl SerializeStructVariant for SizedSerializer<'_> {
 
 impl SerializeTupleVariant for SizedSerializer<'_> {
     type Ok = ();
-    type Error = Error;
+    type Error = SerializeError;
 
     fn serialize_field<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
