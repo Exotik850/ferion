@@ -1,4 +1,4 @@
-use ferion::to_bytes;
+use ferion::{from_bytes, to_bytes};
 
 fn main() {
     let mut input = String::new();
@@ -13,7 +13,7 @@ fn main() {
             break;
         }
 
-        if let Some(path) = input.strip_prefix("file:")  {
+        if let Some(path) = input.strip_prefix("file:") {
             let path = path.trim();
             let Ok(content) = std::fs::read_to_string(path) else {
                 println!("Failed to read file: {}", path);
@@ -41,6 +41,18 @@ fn main() {
             }
         };
         println!("Converted bytes: {:?}", bytes);
+        let decoded: serde_json::Value = match from_bytes(&bytes) {
+            Ok(decoded) => decoded,
+            Err(e) => {
+                println!("Failed to decode bytes: {}", e);
+                input.clear(); // Clear the input for the next iteration
+                continue;
+            }
+        };
+        println!("Decoded JSON: {:?}", decoded);
+        if decoded != json {
+            println!("Warning: Decoded JSON does not match the original");
+        }
     }
 
     input.clear(); // Clear the input for the next iteration
