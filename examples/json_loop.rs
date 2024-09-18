@@ -40,7 +40,7 @@ fn main() {
                 continue;
             }
         };
-        println!("Converted bytes: {:?}", bytes);
+        println!("Converted bytes: {:?} (len {})", bytes, bytes.len());
         let decoded: serde_json::Value = match from_bytes(&bytes) {
             Ok(decoded) => decoded,
             Err(e) => {
