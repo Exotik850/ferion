@@ -4,6 +4,7 @@ fn main() {
     let mut input = String::new();
 
     loop {
+      input.clear(); // Clear the input for the next iteration
         println!("Please enter a JSON object (or 'exit' to quit):");
         std::io::stdin()
             .read_line(&mut input)
@@ -17,7 +18,6 @@ fn main() {
             let path = path.trim();
             let Ok(content) = std::fs::read_to_string(path) else {
                 println!("Failed to read file: {}", path);
-                input.clear(); // Clear the input for the next iteration
                 continue;
             };
             input = content;
@@ -27,7 +27,6 @@ fn main() {
             Ok(json) => json,
             Err(e) => {
                 println!("Invalid JSON: {}", e);
-                input.clear(); // Clear the input for the next iteration
                 continue;
             }
         };
@@ -36,7 +35,6 @@ fn main() {
             Ok(bytes) => bytes,
             Err(e) => {
                 println!("Failed to convert JSON to bytes: {}", e);
-                input.clear(); // Clear the input for the next iteration
                 continue;
             }
         };
@@ -45,15 +43,18 @@ fn main() {
             Ok(decoded) => decoded,
             Err(e) => {
                 println!("Failed to decode bytes: {}", e);
-                input.clear(); // Clear the input for the next iteration
                 continue;
             }
         };
         println!("Decoded JSON: {:?}", decoded);
         if decoded != json {
             println!("Warning: Decoded JSON does not match the original");
+            continue;
         }
+        let json_byte_len = input.trim().len();
+        let rion_byte_len = bytes.len();
+        let ratio = rion_byte_len as f64 / json_byte_len as f64;
+        println!("RION byte length: {}, JSON byte length: {}, Ratio: {:.2}", rion_byte_len, json_byte_len, ratio);
     }
 
-    input.clear(); // Clear the input for the next iteration
 }
