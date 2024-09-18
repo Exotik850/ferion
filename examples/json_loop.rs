@@ -9,12 +9,21 @@ fn main() {
             .read_line(&mut input)
             .expect("Failed to read line");
 
-        let trimed = input.trim();
-        if trimed.eq_ignore_ascii_case("exit") {
+        if input.trim().eq_ignore_ascii_case("exit") {
             break;
         }
 
-        let json = match serde_json::from_str::<serde_json::Value>(trimed) {
+        if let Some(path) = input.strip_prefix("file:")  {
+            let path = path.trim();
+            let Ok(content) = std::fs::read_to_string(path) else {
+                println!("Failed to read file: {}", path);
+                input.clear(); // Clear the input for the next iteration
+                continue;
+            };
+            input = content;
+        }
+
+        let json = match serde_json::from_str::<serde_json::Value>(input.trim()) {
             Ok(json) => json,
             Err(e) => {
                 println!("Invalid JSON: {}", e);
