@@ -171,6 +171,7 @@ impl<'de> Deserializer<'de> {
             return Err(DeserializeError::DataLength(len_data, self.data.len()));
         }
         let field_data = &self.data[..len_data];
+        self.data = &self.data[len_data..];
         match normal {
             NormalRionType::Array => {
                 visitor.visit_seq(SizedDeserializer::new(&mut Deserializer::new(field_data)))

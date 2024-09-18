@@ -462,19 +462,18 @@ impl SerializeMap for SizedSerializer<'_> {
 impl<'a> SizedSerializer<'a> {
     fn finish(self, type_byte: u8) -> Result<(), SerializeError> {
         let total_len = self.temp.output.len();
-        let len_bytes = num_needed_length(total_len);
-        if len_bytes > 15 {
-            return Err(SerializeError::LengthOverflow(len_bytes)); // TODO handle error
+        let length_length = num_needed_length(total_len);
+        if length_length > 15 {
+            return Err(SerializeError::LengthOverflow(length_length)); // TODO handle error
         }
         self.output
             .output
-            .insert(self.initial_len, type_byte << 4 | len_bytes as u8);
+            .insert(self.initial_len, type_byte << 4 | length_length as u8);
         let ll = total_len as u64;
         let len_bytes = ll.to_be_bytes();
-        let zeros = total_len.trailing_zeros().div_ceil(8);
         self.output
             .output
-            .extend_from_slice(&len_bytes[8 - zeros as usize..]);
+            .extend_from_slice(&len_bytes[8 - length_length..]);
         self.output.output.extend(self.temp.output);
         Ok(())
     }
