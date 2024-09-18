@@ -1,3 +1,5 @@
+#![cfg_attr(feature = "specialization", feature(min_specialization))]
+
 use std::error::Error;
 mod array;
 mod field;

@@ -63,15 +63,93 @@ mod test {
         assert_eq!(object, test_object);
         // println!("{:?}", object);
     }
+
+    #[cfg(feature = "specialization")]
+    #[test]
+    fn test_serialize_owned_bytes() {
+        let value = b"hello".to_vec();
+        let serialized = to_bytes(&value).unwrap();
+        assert_eq!(serialized, vec![0x01, 0x05, b'h', b'e', b'l', b'l', b'o']);
+    }
+
+    #[cfg(feature = "specialization")]
+    #[test]
+    fn test_serialize_borrowed_bytes() {
+        let value = b"hello".as_slice();
+        let serialized = to_bytes(&value).unwrap();
+        assert_eq!(serialized, vec![0x01, 0x05, b'h', b'e', b'l', b'l', b'o']);
+    }
+
+    #[cfg(feature = "specialization")]
+    #[test]
+    fn test_serialize_array_bytes() {
+        let value = [b'h', b'e', b'l', b'l', b'o'];
+        let serialized = to_bytes(&value).unwrap();
+        assert_eq!(serialized, vec![0x01, 0x05, b'h', b'e', b'l', b'l', b'o']);
+    }
 }
 
 pub fn to_bytes<T>(value: &T) -> Result<Vec<u8>, Error>
 where
-    T: Serialize,
+    T: RionSerialize,
 {
     let mut serializer = Serializer { output: Vec::new() };
     value.serialize(&mut serializer)?;
     Ok(serializer.output)
+}
+
+pub trait RionSerialize {
+    fn serialize(&self, serializer: &mut Serializer) -> Result<(), Error>;
+}
+
+#[cfg(feature = "specialization")]
+impl<T: Serialize> RionSerialize for T {
+    default fn serialize(&self, serializer: &mut Serializer) -> Result<(), Error> {
+        self.serialize(serializer)
+    }
+}
+#[cfg(not(feature = "specialization"))]
+impl<T: Serialize> RionSerialize for T {
+    fn serialize(&self, serializer: &mut Serializer) -> Result<(), Error> {
+        self.serialize(serializer)
+    }
+}
+
+#[cfg(feature = "specialization")]
+macro_rules! impl_rion_serialize_const_array {
+  ($($len:expr), +) => {
+      $(
+        impl RionSerialize for [u8; $len] {
+            fn serialize(&self, serializer: &mut Serializer) -> Result<(), Error> {
+                println!("Serializing array of length {}", $len);
+                let bytes = RionField::bytes(self);
+                bytes.encode(&mut serializer.output).unwrap();
+                Ok(())
+            }
+        }
+      )+
+    };
+}
+
+#[cfg(feature = "specialization")]
+impl_rion_serialize_const_array!(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+
+#[cfg(feature = "specialization")]
+impl RionSerialize for &[u8] {
+    fn serialize(&self, serializer: &mut Serializer) -> Result<(), Error> {
+        let bytes = RionField::bytes(self);
+        bytes.encode(&mut serializer.output).unwrap();
+        Ok(())
+    }
+}
+
+#[cfg(feature = "specialization")]
+impl RionSerialize for Vec<u8> {
+    fn serialize(&self, serializer: &mut Serializer) -> Result<(), Error> {
+        let bytes = RionField::bytes(self);
+        bytes.encode(&mut serializer.output).unwrap();
+        Ok(())
+    }
 }
 
 impl<'a> serde::Serializer for &'a mut Serializer {
@@ -372,10 +450,12 @@ impl SerializeStruct for SizedSerializer<'_> {
     type Ok = ();
     type Error = Error;
 
-    fn serialize_field<T>(&mut self, _key: &'static str, value: &T) -> Result<(), Self::Error>
+    fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
     where
         T: ?Sized + serde::Serialize,
     {
+        let key = RionField::key(key.as_bytes());
+        key.encode(&mut self.temp.output).unwrap();
         value.serialize(&mut self.temp)
     }
 
@@ -388,10 +468,12 @@ impl SerializeStructVariant for SizedSerializer<'_> {
     type Ok = ();
     type Error = Error;
 
-    fn serialize_field<T>(&mut self, _key: &'static str, value: &T) -> Result<(), Self::Error>
+    fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
     where
         T: ?Sized + serde::Serialize,
     {
+        let key = RionField::key(key.as_bytes());
+        key.encode(&mut self.temp.output).unwrap();
         value.serialize(&mut self.temp)
     }
 
