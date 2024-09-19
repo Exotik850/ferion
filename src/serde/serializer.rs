@@ -39,7 +39,6 @@ impl Serializer {
 pub struct SizedSerializer<'a> {
     output: &'a mut Serializer,
     temp: Serializer,
-    initial_len: usize,
 }
 
 #[cfg(test)]
@@ -404,7 +403,6 @@ impl<'a> serde::Serializer for &'a mut Serializer {
 
     fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
         Ok(SizedSerializer {
-            initial_len: self.output.len(),
             temp: Serializer::new(),
             output: self,
         })
@@ -434,7 +432,6 @@ impl<'a> serde::Serializer for &'a mut Serializer {
 
     fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
         Ok(SizedSerializer {
-            initial_len: self.output.len(),
             temp: Serializer::new(),
             output: self,
         })
@@ -544,7 +541,7 @@ impl<'a> SizedSerializer<'a> {
         }
         self.output
             .output
-            .insert(self.initial_len, type_byte << 4 | length_length as u8);
+            .push(type_byte << 4 | length_length as u8);
         let ll = total_len as u64;
         let len_bytes = ll.to_be_bytes();
         self.output
