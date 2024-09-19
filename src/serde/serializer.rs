@@ -71,6 +71,13 @@ mod test {
         // println!("{:?}", object);
     }
 
+    #[test]
+    fn test_serialize_empty_object() {
+        let obj: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let result = to_bytes(&obj).unwrap();
+        assert_eq!(result, vec![0xC0]);
+    }
+
     #[cfg(feature = "specialization")]
     #[test]
     fn test_serialize_owned_bytes() {
@@ -93,6 +100,17 @@ mod test {
         let value = [b'h', b'e', b'l', b'l', b'o'];
         let serialized = to_bytes(&value).unwrap();
         assert_eq!(serialized, vec![0x01, 0x05, b'h', b'e', b'l', b'l', b'o']);
+    }
+
+    #[cfg(not(feature = "specialization"))]
+    #[test]
+    fn test_serialize_vec_bytes() {
+        let value = vec![b'h', b'e', b'l', b'l', b'o'];
+        let serialized = to_bytes(&value).unwrap();
+        assert_eq!(
+            serialized,
+            vec![0xA1, 0x0A, 0x21, b'h', 0x21, b'e', 0x21, b'l', 0x21, b'l', 0x21, b'o']
+        );
     }
 
     #[test]
@@ -203,7 +221,7 @@ macro_rules! impl_rion_serialize_const_array {
   ($($len:expr), +) => {
       $(
         impl RionSerialize for [u8; $len] {
-            fn serialize(&self, serializer: &mut Serializer) -> Result<(), Error> {
+            fn serialize(&self, serializer: &mut Serializer) -> Result<(), SerializeError> {
                 println!("Serializing array of length {}", $len);
                 let bytes = RionField::bytes(self);
                 bytes.encode(&mut serializer.output).unwrap();
@@ -219,7 +237,7 @@ impl_rion_serialize_const_array!(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 1
 
 #[cfg(feature = "specialization")]
 impl RionSerialize for &[u8] {
-    fn serialize(&self, serializer: &mut Serializer) -> Result<(), Error> {
+    fn serialize(&self, serializer: &mut Serializer) -> Result<(), SerializeError> {
         let bytes = RionField::bytes(self);
         bytes.encode(&mut serializer.output).unwrap();
         Ok(())
@@ -228,7 +246,7 @@ impl RionSerialize for &[u8] {
 
 #[cfg(feature = "specialization")]
 impl RionSerialize for Vec<u8> {
-    fn serialize(&self, serializer: &mut Serializer) -> Result<(), Error> {
+    fn serialize(&self, serializer: &mut Serializer) -> Result<(), SerializeError> {
         let bytes = RionField::bytes(self);
         bytes.encode(&mut serializer.output).unwrap();
         Ok(())
