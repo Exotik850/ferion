@@ -76,6 +76,7 @@ where
 }
 
 // #[derive(Debug)]
+#[derive(PartialEq)]
 pub enum DeserializeError {
     Eod,
     DataLength(usize, usize),                  // Expected, Actual
@@ -467,6 +468,27 @@ mod tests {
         ];
         let value: Vec<u8> = from_bytes(&data).unwrap();
         assert_eq!(value, vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_deserialize_null_option() {
+        let data = vec![0x50];
+        let result: Option<String> = from_bytes(&data).unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_deserialize_some_option() {
+        let data = vec![0xE5, b'A', b'l', b'i', b'c', b'e'];
+        let result: Option<String> = from_bytes(&data).unwrap();
+        assert_eq!(result, Some("Alice".to_string()));
+    }
+    
+    #[test]
+    fn test_deserialize_wrong_option() {
+        let data = vec![0xE5, b'A', b'l', b'i', b'c', b'e'];
+        let result: Result<Option<i32>, _> = from_bytes(&data);
+        assert!(result.is_err())
     }
 }
 

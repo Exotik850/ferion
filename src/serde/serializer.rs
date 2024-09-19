@@ -46,8 +46,8 @@ pub struct SizedSerializer<'a> {
 mod test {
     use std::collections::HashMap;
 
-    use super::*;
-    use crate::RionObject;
+    use super::{to_bytes, Serialize};
+    use crate::{from_bytes, RionObject};
 
     #[test]
     fn test_serialize_bool() {
@@ -94,6 +94,82 @@ mod test {
         let value = [b'h', b'e', b'l', b'l', b'o'];
         let serialized = to_bytes(&value).unwrap();
         assert_eq!(serialized, vec![0x01, 0x05, b'h', b'e', b'l', b'l', b'o']);
+    }
+
+    #[test]
+    fn test_serialize_mixed_array() {
+        #[derive(Serialize)]
+        struct MixedType {
+            i: u8,
+            s: String,
+            b: bool,
+        }
+        let obj = MixedType {
+            i: 1,
+            s: "abc".to_string(),
+            b: true,
+        };
+        let result = to_bytes(&obj).unwrap();
+        assert_eq!(
+            result,
+            vec![
+                0xC1, 0x0D, // Object start
+                0xE1, b'i', 0x21, 0x01, // Integer 1
+                0xE1, b's', 0x63, b'a', b'b', b'c', // String "abc"
+                0xE1, b'b', 0x12, // Boolean true
+            ]
+        );
+    }
+
+    #[test]
+    fn test_serialize_negative_integer() {
+        let value = -42;
+        let serialized = to_bytes(&value).unwrap();
+        assert_eq!(serialized, vec![0x31, 0x29]);
+    }
+
+    #[test]
+    fn test_serialize_nested_objects() {
+        #[derive(Serialize)]
+        struct NestedObj {
+            obj: std::collections::HashMap<String, String>,
+        }
+        let mut inner = std::collections::HashMap::new();
+        inner.insert("key".to_string(), "value".to_string());
+        let obj = NestedObj { obj: inner };
+        let result = to_bytes(&obj).unwrap();
+        assert_eq!(
+            result,
+            vec![
+                0xC1, 0x10, // Object start
+                0xE3, b'o', b'b', b'j', // Key "obj"
+                0xC1, 0x0A, // Nested object start
+                0xE3, b'k', b'e', b'y', // Key "key"
+                0x65, b'v', b'a', b'l', b'u', b'e', // Value "value"
+            ]
+        );
+    }
+
+    #[test]
+    fn test_serialize_deeply_nested() {
+        #[derive(Serialize, Debug)]
+        struct DeepNested {
+            a: String,
+            b: Option<Box<DeepNested>>,
+        }
+
+        let mut nest = DeepNested {
+            a: "level 1".to_string(),
+            b: None,
+        };
+        for i in 0..25 {
+            nest = DeepNested {
+                a: format!("level {}", i + 1),
+                b: Some(Box::new(nest)),
+            };
+        }
+        let result = to_bytes(&nest).unwrap();
+        // println!("{:?}", result);
     }
 }
 
