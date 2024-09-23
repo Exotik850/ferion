@@ -1,4 +1,5 @@
 use crate::{
+    needed_bytes_usize,
     types::{LeadByte, NormalRionType, RionFieldType},
     Result, RionField,
 };
@@ -101,7 +102,7 @@ impl<'a> RionArray<'a> {
         }
         let content_len = content.len();
         // number of bytes needed to encode the length
-        let length_length = content_len.div_ceil(64);
+        let length_length = needed_bytes_usize(content_len);
         if length_length > 15 {
             println!("Warning: Object length field is too long, truncating to 15 bytes");
         }

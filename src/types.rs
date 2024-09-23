@@ -30,7 +30,7 @@ impl LeadByte {
         self.length() < 15
     }
 
-    pub fn byte(self) -> u8 {
+    pub const fn byte(self) -> u8 {
         self.0
     }
 
@@ -81,7 +81,7 @@ pub enum ShortRionType {
 }
 
 impl ShortRionType {
-    pub fn to_byte(self) -> u8 {
+    pub const fn to_byte(self) -> u8 {
         match self {
             ShortRionType::Int64Positive => 0x2,
             ShortRionType::Int64Negative => 0x3,
@@ -136,7 +136,7 @@ impl TryFrom<u8> for NormalRionType {
 }
 
 impl NormalRionType {
-    pub fn to_byte(self) -> u8 {
+    pub const fn to_byte(self) -> u8 {
         match self {
             NormalRionType::Bytes => 0x0,
             NormalRionType::UTF8 => 0x5,
@@ -149,7 +149,7 @@ impl NormalRionType {
 }
 
 impl RionFieldType {
-    pub fn to_byte(self) -> u8 {
+    pub const fn to_byte(self) -> u8 {
         match self {
             Self::Short(short) => short.to_byte(),
             Self::Normal(normal) => normal.to_byte(),

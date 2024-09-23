@@ -1,4 +1,4 @@
-use crate::{bytes_to_num, get_header, num_needed_length, types::*, Result};
+use crate::{bytes_to_int, get_header, int_to_bytes, needed_bytes_usize, types::*, Result};
 use chrono::{DateTime, Datelike, Timelike, Utc};
 use core::str;
 use std::{borrow::Cow, error::Error};
@@ -51,8 +51,9 @@ impl<'a> ShortField<'a> {
     }
 
     pub fn extend(&self, data: &mut impl std::io::Write) -> std::io::Result<()> {
-        data.write(&[self.field_type.to_byte() << 4 | self.data.len() as u8])?;
-        data.write(&self.data)?;
+        assert!(self.data.len() <= 15);
+        data.write_all(&[self.field_type.to_byte() << 4 | self.data.len() as u8])?;
+        data.write_all(&self.data)?;
         Ok(())
     }
 
@@ -117,7 +118,7 @@ pub struct NormalField<'a> {
 
 impl<'a> NormalField<'a> {
     pub fn new(field_type: NormalRionType, data: &'a [u8]) -> Self {
-        if num_needed_length(data.len()) > 15 {
+        if needed_bytes_usize(data.len()) > 15 {
             panic!("Data too large for normal field");
         }
         NormalField {
@@ -144,7 +145,7 @@ impl<'a> NormalField<'a> {
             0 => return Ok((NormalField::null(field_type), input)),
             _ => {}
         }
-        let data_len: usize = bytes_to_num(&input[..length_length])?;
+        let data_len = bytes_to_int(&input[..length_length])? as usize;
         if data_len > input.len() {
             return Err(format!(
                 "Input too short for data field ({}), expected {data_len}",
@@ -158,17 +159,18 @@ impl<'a> NormalField<'a> {
     }
 
     pub fn extend(&self, data: &mut impl std::io::Write) -> Result<()> {
-        let length_length = num_needed_length(self.data.len());
+        let length_length = needed_bytes_usize(self.data.len());
         if length_length > 15 {
             return Err("Data length too large for normal field".into());
         }
-        data.write(&[self.field_type.to_byte() << 4 | length_length as u8])?;
+        data.write_all(&[self.field_type.to_byte() << 4 | length_length as u8])?;
         // lead_byte.length() == bytes needed to represent d_len
         // write the length of the data
-        let length_bytes = &self.data.len().to_be_bytes()[8 - length_length..];
-        println!("Length bytes: {:?}", length_bytes);
-        data.write(length_bytes)?;
-        data.write(&self.data)?;
+        int_to_bytes(&(self.data.len() as u64), data)?;
+        // let length_bytes = &self.data.len().to_be_bytes()[8 - length_length..];
+        // println!("Length bytes: {:?}", length_bytes);
+        // data.write_all(length_bytes)?;
+        data.write_all(&self.data)?;
         Ok(())
     }
 
@@ -257,7 +259,7 @@ impl<'a> RionField<'a> {
             RionFieldType::Normal(normal) => {
                 // let (normal, rest) = NormalField::parse(rest, length, normal)?;
                 // (RionField::Normal(normal), rest)
-                let length: usize = bytes_to_num(length)?;
+                let length = bytes_to_int(length)? as usize;
                 let field = NormalField::new(normal, &rest[..length]);
                 rest = &rest[length..];
                 field.into()
@@ -329,7 +331,7 @@ impl<'a> RionField<'a> {
             RionField::Short(short) => short.data.len(),
             RionField::Normal(normal) => {
                 let data_len = normal.data.len();
-                data_len + num_needed_length(data_len)
+                data_len + needed_bytes_usize(data_len)
             }
             _ => 0,
         }
@@ -467,7 +469,7 @@ impl<'a> From<&'a str> for RionField<'a> {
             }),
             _ => {
                 // let data = value.as_bytes().to_vec();
-                let num_bytes = num_needed_length(value_len);
+                let num_bytes = needed_bytes_usize(value_len);
                 if num_bytes > 15 {
                     println!("Warning: UTF-8 length field is too long, truncating to 15 bytes");
                 } // TODO handle this
@@ -489,7 +491,7 @@ impl From<String> for RionField<'static> {
                 data: value.into_bytes().into(),
             }),
             _ => {
-                let num_bytes = num_needed_length(value_len);
+                let num_bytes = needed_bytes_usize(value_len);
                 if num_bytes > 15 {
                     println!("Warning: UTF-8 length field is too long, truncating to 15 bytes");
                 } // TODO handle this

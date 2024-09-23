@@ -9,7 +9,7 @@ use serde::{
 };
 
 use crate::{
-    num_needed_length,
+    needed_bytes_usize,
     types::{LeadByte, NormalRionType, RionFieldType, ShortRionType},
     RionField,
 };
@@ -33,6 +33,13 @@ impl Serializer {
         let field = RionField::key(key);
         field.encode(&mut self.output).unwrap();
         Ok(())
+    }
+
+    pub fn serialize_entry<T: ?Sized + Serialize>(&mut self, key: &str, value: &T) -> Result<(), SerializeError> {
+        let mut sized = SizedSerializer::new(self);
+        sized.serialize_key(key)?;
+        value.serialize(&mut sized.temp)?;
+        sized.finish(0xC)
     }
 }
 
@@ -179,7 +186,7 @@ mod test {
             a: "level 1".to_string(),
             b: None,
         };
-        for i in 0..25 {
+        for i in 0..250 {
             nest = DeepNested {
                 a: format!("level {}", i + 1),
                 b: Some(Box::new(nest)),
@@ -263,6 +270,7 @@ impl std::fmt::Display for SerializeError {
             SerializeError::LengthOverflow(len) => {
                 write!(f, "Length overflow: {}", len)
             }
+            SerializeError::IoError(err) => write!(f, "IO Error: {}", err),
         }
     }
 }
@@ -280,12 +288,18 @@ impl From<Box<dyn Error>> for SerializeError {
         SerializeError::Custom(err.to_string())
     }
 }
+impl From<std::io::Error> for SerializeError {
+    fn from(err: std::io::Error) -> Self {
+        SerializeError::IoError(err)
+    }
+}
 
 #[derive(Debug)]
 pub enum SerializeError {
     Custom(String),
     InvalidType(RionFieldType),
     LengthOverflow(usize),
+    IoError(std::io::Error),
 }
 
 impl<'a> serde::Serializer for &'a mut Serializer {
@@ -305,13 +319,13 @@ impl<'a> serde::Serializer for &'a mut Serializer {
         Ok(())
     }
     fn serialize_i8(self, v: i8) -> Result<Self::Ok, Self::Error> {
-        self.serialize_i64(v as i64)
+        self.serialize_i64(i64::from(v))
     }
     fn serialize_i16(self, v: i16) -> Result<Self::Ok, Self::Error> {
-        self.serialize_i64(v as i64)
+        self.serialize_i64(i64::from(v))
     }
     fn serialize_i32(self, v: i32) -> Result<Self::Ok, Self::Error> {
-        self.serialize_i64(v as i64)
+        self.serialize_i64(i64::from(v))
     }
 
     fn serialize_i64(self, v: i64) -> Result<Self::Ok, Self::Error> {
@@ -321,15 +335,15 @@ impl<'a> serde::Serializer for &'a mut Serializer {
     }
 
     fn serialize_u8(self, v: u8) -> Result<Self::Ok, Self::Error> {
-        self.serialize_u64(v as u64)
+        self.serialize_u64(u64::from(v))
     }
 
     fn serialize_u16(self, v: u16) -> Result<Self::Ok, Self::Error> {
-        self.serialize_u64(v as u64)
+        self.serialize_u64(u64::from(v))
     }
 
     fn serialize_u32(self, v: u32) -> Result<Self::Ok, Self::Error> {
-        self.serialize_u64(v as u64)
+        self.serialize_u64(u64::from(v))
     }
 
     fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
@@ -410,20 +424,24 @@ impl<'a> serde::Serializer for &'a mut Serializer {
         self,
         _name: &'static str,
         _variant_index: u32,
-        _variant: &'static str,
+        variant: &'static str,
         value: &T,
     ) -> Result<Self::Ok, Self::Error>
     where
         T: ?Sized + serde::Serialize,
     {
-        value.serialize(self)
+        // let mut sized = SizedSerializer {
+        //     output: self,
+        //     temp: Serializer::new(),
+        // };
+        // sized.serialize_key(variant)?;
+        // value.serialize(&mut sized.temp)?;
+        // sized.finish(0xC)
+        self.serialize_entry(variant, value)
     }
 
     fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
-        Ok(SizedSerializer {
-            temp: Serializer::new(),
-            output: self,
-        })
+        Ok(SizedSerializer::new(self))
     }
 
     fn serialize_tuple(self, len: usize) -> Result<Self::SerializeTuple, Self::Error> {
@@ -442,17 +460,16 @@ impl<'a> serde::Serializer for &'a mut Serializer {
         self,
         _name: &'static str,
         _variant_index: u32,
-        _variant: &'static str,
+        variant: &'static str,
         len: usize,
     ) -> Result<Self::SerializeTupleVariant, Self::Error> {
-        self.serialize_seq(Some(len))
+        let mut sized = SizedSerializer::new(self);
+        sized.serialize_key(variant)?;
+        Ok(sized)
     }
 
     fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
-        Ok(SizedSerializer {
-            temp: Serializer::new(),
-            output: self,
-        })
+        Ok(SizedSerializer::new(self))
     }
 
     fn serialize_struct(
@@ -467,7 +484,7 @@ impl<'a> serde::Serializer for &'a mut Serializer {
         self,
         _name: &'static str,
         _variant_index: u32,
-        _variant: &'static str,
+        variant: &'static str,
         len: usize,
     ) -> Result<Self::SerializeStructVariant, Self::Error> {
         self.serialize_map(Some(len))
@@ -518,19 +535,20 @@ impl SerializeMap for SizedSerializer<'_> {
         // key.serialize(&mut self.temp)
         let initial_len = self.temp.output.len();
         key.serialize(&mut self.temp)?;
-        let lead = self.temp.output[initial_len];
+        let lead = self.temp.output[initial_len]; // Guaranteed to have at least one byte written
         let lead_byte = LeadByte::try_from(lead)?;
         // If the first byte is not a Key field, throw an error
         let ft = lead_byte.field_type();
+        let target = &mut self.temp.output[initial_len];
         match ft {
             ft if ft.is_key() => {}
             RionFieldType::Normal(NormalRionType::UTF8) => {
-                self.temp.output[initial_len] &= 0x0F;
-                self.temp.output[initial_len] |= NormalRionType::Key.to_byte() << 4;
+                *target &= 0x0F;
+                *target |= NormalRionType::Key.to_byte() << 4;
             }
             RionFieldType::Short(ShortRionType::UTF8) => {
-                self.temp.output[initial_len] &= 0x0F;
-                self.temp.output[initial_len] |= ShortRionType::Key.to_byte() << 4;
+                *target &= 0x0F;
+                *target |= ShortRionType::Key.to_byte() << 4;
             }
             _ => return Err(SerializeError::InvalidType(ft)),
         }
@@ -551,9 +569,16 @@ impl SerializeMap for SizedSerializer<'_> {
 }
 
 impl<'a> SizedSerializer<'a> {
+    fn new(output: &'a mut Serializer) -> Self {
+        Self {
+            output,
+            temp: Serializer::new(),
+        }
+    }
+
     fn finish(self, type_byte: u8) -> Result<(), SerializeError> {
         let total_len = self.temp.output.len();
-        let length_length = num_needed_length(total_len);
+        let length_length = needed_bytes_usize(total_len);
         if length_length > 15 {
             return Err(SerializeError::LengthOverflow(length_length)); // TODO handle error
         }
@@ -561,10 +586,7 @@ impl<'a> SizedSerializer<'a> {
             .output
             .push(type_byte << 4 | length_length as u8);
         let ll = total_len as u64;
-        let len_bytes = ll.to_be_bytes();
-        self.output
-            .output
-            .extend_from_slice(&len_bytes[8 - length_length..]);
+        crate::int_to_bytes(&ll, &mut self.output.output)?;
         self.output.output.extend(self.temp.output);
         Ok(())
     }
@@ -582,7 +604,7 @@ impl SerializeTupleStruct for SizedSerializer<'_> {
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        self.finish(0xC)
+        self.finish(0xA)
     }
 }
 
@@ -594,8 +616,9 @@ impl SerializeStruct for SizedSerializer<'_> {
     where
         T: ?Sized + serde::Serialize,
     {
-        let key = RionField::key(key.as_bytes());
-        key.encode(&mut self.temp.output).unwrap();
+        // let key = RionField::key(key.as_bytes());
+        // key.encode(&mut self.temp.output).unwrap();
+        self.serialize_key(key)?;
         value.serialize(&mut self.temp)
     }
 
@@ -612,8 +635,7 @@ impl SerializeStructVariant for SizedSerializer<'_> {
     where
         T: ?Sized + serde::Serialize,
     {
-        let key = RionField::key(key.as_bytes());
-        key.encode(&mut self.temp.output).unwrap();
+        self.serialize_key(key)?;
         value.serialize(&mut self.temp)
     }
 

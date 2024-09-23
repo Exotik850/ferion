@@ -19,7 +19,6 @@ pub use table::RionTable;
 #[cfg(test)]
 mod test;
 pub use field::RionField;
-use num_bigint::BigUint;
 use types::LeadByte;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -43,15 +42,50 @@ fn get_header(data: &[u8]) -> Result<(LeadByte, &[u8], &[u8])> {
     Ok((lead, &rest[..length_length], &rest[length_length..]))
 }
 
-fn bytes_to_num<T>(bytes: &[u8]) -> Result<T>
-where
-    T: TryFrom<BigUint>,
-{
-    let length = BigUint::from_bytes_be(bytes);
-    let data_len: T = length
-        .try_into()
-        .map_err(|_| format!("Data too large for {}", std::any::type_name::<T>()))?;
-    Ok(data_len)
+fn bytes_to_int(bytes: &[u8]) -> Result<u64> {
+    match bytes.len() {
+        0..=8 => Ok(bytes.iter().fold(0u64, |acc, &b| acc << 8 | b as u64)),
+        _ => Err("Too many bytes to convert to u64".into()),
+    }
+}
+
+// fn bytes_to_float
+
+// Casts the int to a slice of integers (big endian)
+fn int_to_bytes(int: &u64, w: &mut impl std::io::Write) -> std::io::Result<()> {
+    if *int == 0 {
+        return Ok(());
+    }
+    let bytes = int.to_be_bytes();
+    let first_non_zero = bytes.iter().position(|&b| b != 0).unwrap_or(7);
+    w.write_all(&bytes[first_non_zero..])
+}
+
+#[cfg(test)]
+mod int_cast_tests {
+    // Test the bytes_to_int and int_to_bytes functions
+    #[test]
+    fn test_bytes_to_int() {
+        let bytes = [0x01, 0x02, 0x03, 0x04];
+        assert_eq!(super::bytes_to_int(&bytes).unwrap(), 0x01020304);
+    }
+
+    #[test]
+    fn test_int_to_bytes() {
+        let int = 0x01020304;
+        let mut encoder = Vec::new();
+        super::int_to_bytes(&int, &mut encoder).unwrap();
+        assert_eq!(&encoder, &[0x01, 0x02, 0x03, 0x04]);
+    }
+
+    // Test they work to and from each other
+    #[test]
+    fn test_int_to_bytes_to_int() {
+        let int = 0x01020304;
+        let mut encoder = Vec::new();
+        super::int_to_bytes(&int, &mut encoder).unwrap();
+        assert_eq!(super::bytes_to_int(&encoder).unwrap(), int);
+    }
 }
 
 /// Get the header of a RION object
@@ -61,7 +95,8 @@ fn get_normal_header(data: &[u8]) -> Result<(LeadByte, usize, &[u8])> {
     let types::RionFieldType::Normal(_) = lead.field_type() else {
         return Err("Expected a Normal encoded field".into());
     };
-    let data_len: usize = bytes_to_num(length)?;
+    let data_len = bytes_to_int(length)?;
+    let data_len: usize = data_len.try_into()?;
     if data_len > rest.len() {
         return Err(format!(
             "Not enough data in {data:x?} (len: (rest) {} + (header) {}) for length {data_len}",
@@ -73,7 +108,17 @@ fn get_normal_header(data: &[u8]) -> Result<(LeadByte, usize, &[u8])> {
     Ok((lead, data_len, rest))
 }
 
-fn num_needed_length(length: usize) -> usize {
+fn needed_bytes(length: u64) -> u32 {
+    if length == 0 {
+        return 0;
+    }
+    if length == 1 {
+        return 1;
+    }
+    length.ilog2().div_ceil(8)
+}
+
+fn needed_bytes_usize(length: usize) -> usize {
     if length == 0 {
         return 0;
     }
