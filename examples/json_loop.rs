@@ -4,7 +4,7 @@ fn main() {
     let mut input = String::new();
 
     loop {
-      input.clear(); // Clear the input for the next iteration
+        input.clear(); // Clear the input for the next iteration
         println!("Please enter a JSON object (or 'exit' to quit):");
         std::io::stdin()
             .read_line(&mut input)
@@ -38,7 +38,11 @@ fn main() {
                 continue;
             }
         };
-        println!("Converted bytes: {:?} (len {})", bytes, bytes.len());
+        // println!("Converted bytes (len: {}): [", bytes.len());
+        // for byte in &bytes {
+        //     print!("{:02x} ", byte);
+        // }
+        // println!("]");
         let decoded: serde_json::Value = match from_bytes(&bytes) {
             Ok(decoded) => decoded,
             Err(e) => {
@@ -54,7 +58,9 @@ fn main() {
         let json_byte_len = input.trim().len();
         let rion_byte_len = bytes.len();
         let ratio = rion_byte_len as f64 / json_byte_len as f64;
-        println!("RION byte length: {}, JSON byte length: {}, Ratio: {:.2}", rion_byte_len, json_byte_len, ratio);
+        println!(
+            "RION byte length: {}, JSON byte length: {}, Ratio: {:.2}",
+            rion_byte_len, json_byte_len, ratio
+        );
     }
-
 }
