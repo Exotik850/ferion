@@ -83,12 +83,12 @@ pub enum ShortRionType {
 impl ShortRionType {
     pub const fn to_byte(self) -> u8 {
         match self {
-            ShortRionType::Int64Positive => 0x2,
-            ShortRionType::Int64Negative => 0x3,
-            ShortRionType::Float => 0x4,
-            ShortRionType::UTF8 => 0x6,
-            ShortRionType::UTCDateTime => 0x7,
-            ShortRionType::Key => 0xE,
+            ShortRionType::Int64Positive => RionFieldType::INT64_POSITIVE,
+            ShortRionType::Int64Negative => RionFieldType::INT64_NEGATIVE,
+            ShortRionType::Float => RionFieldType::FLOAT,
+            ShortRionType::UTF8 => RionFieldType::UTF8_SHORT,
+            ShortRionType::UTCDateTime => RionFieldType::UTC_DATE_TIME,
+            ShortRionType::Key => RionFieldType::KEY_SHORT,
         }
     }
 }
@@ -138,17 +138,30 @@ impl TryFrom<u8> for NormalRionType {
 impl NormalRionType {
     pub const fn to_byte(self) -> u8 {
         match self {
-            NormalRionType::Bytes => 0x0,
-            NormalRionType::UTF8 => 0x5,
-            NormalRionType::Array => 0xA,
-            NormalRionType::Table => 0xB,
-            NormalRionType::Object => 0xC,
-            NormalRionType::Key => 0xD,
+            NormalRionType::Bytes => RionFieldType::BYTES,
+            NormalRionType::UTF8 => RionFieldType::UTF8,
+            NormalRionType::Array => RionFieldType::ARRAY,
+            NormalRionType::Table => RionFieldType::TABLE,
+            NormalRionType::Object => RionFieldType::OBJECT,
+            NormalRionType::Key => RionFieldType::KEY,
         }
     }
 }
 
 impl RionFieldType {
+    pub const OBJECT: u8 = 0xC;
+    pub const TABLE: u8 = 0xB;
+    pub const ARRAY: u8 = 0xA;
+    pub const UTF8: u8 = 0x5;
+    pub const BYTES: u8 = 0x0;
+    pub const KEY: u8 = 0xD;
+    pub const FLOAT: u8 = 0x4;
+    pub const UTC_DATE_TIME: u8 = 0x7;
+    pub const INT64_POSITIVE: u8 = 0x2;
+    pub const INT64_NEGATIVE: u8 = 0x3;
+    pub const UTF8_SHORT: u8 = 0x6;
+    pub const KEY_SHORT: u8 = 0xE;
+
     pub const fn to_byte(self) -> u8 {
         match self {
             Self::Short(short) => short.to_byte(),
