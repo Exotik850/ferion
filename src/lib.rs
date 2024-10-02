@@ -52,40 +52,14 @@ fn bytes_to_int(bytes: &[u8]) -> Result<u64> {
 // fn bytes_to_float
 
 // Casts the int to a slice of integers (big endian)
+// If the int is 0, nothing is written
 fn int_to_bytes(int: &u64, w: &mut impl std::io::Write) -> std::io::Result<()> {
     if *int == 0 {
         return Ok(());
     }
     let bytes = int.to_be_bytes();
-    let first_non_zero = bytes.iter().position(|&b| b != 0).unwrap_or(7);
+    let first_non_zero = bytes.iter().position(|&b| b != 0).unwrap();
     w.write_all(&bytes[first_non_zero..])
-}
-
-#[cfg(test)]
-mod int_cast_tests {
-    // Test the bytes_to_int and int_to_bytes functions
-    #[test]
-    fn test_bytes_to_int() {
-        let bytes = [0x01, 0x02, 0x03, 0x04];
-        assert_eq!(super::bytes_to_int(&bytes).unwrap(), 0x01020304);
-    }
-
-    #[test]
-    fn test_int_to_bytes() {
-        let int = 0x01020304;
-        let mut encoder = Vec::new();
-        super::int_to_bytes(&int, &mut encoder).unwrap();
-        assert_eq!(&encoder, &[0x01, 0x02, 0x03, 0x04]);
-    }
-
-    // Test they work to and from each other
-    #[test]
-    fn test_int_to_bytes_to_int() {
-        let int = 0x01020304;
-        let mut encoder = Vec::new();
-        super::int_to_bytes(&int, &mut encoder).unwrap();
-        assert_eq!(super::bytes_to_int(&encoder).unwrap(), int);
-    }
 }
 
 /// Get the header of a RION object
@@ -115,15 +89,47 @@ fn needed_bytes(length: u64) -> u32 {
     if length == 1 {
         return 1;
     }
-    length.ilog2().div_ceil(8)
+    length.ilog2() / 8 + 1
 }
 
 fn needed_bytes_usize(length: usize) -> usize {
-    if length == 0 {
-        return 0;
+    needed_bytes(length as u64) as usize
+}
+
+#[cfg(test)]
+mod int_cast_tests {
+    use crate::needed_bytes;
+
+    // Test the bytes_to_int and int_to_bytes functions
+    #[test]
+    fn test_bytes_to_int() {
+        let bytes = [0x01, 0x02, 0x03, 0x04];
+        assert_eq!(super::bytes_to_int(&bytes).unwrap(), 0x01020304);
     }
-    if length == 1 {
-        return 1;
+
+    #[test]
+    fn test_int_to_bytes() {
+        let int = 0x01020304;
+        let mut encoder = Vec::new();
+        super::int_to_bytes(&int, &mut encoder).unwrap();
+        assert_eq!(&encoder, &[0x01, 0x02, 0x03, 0x04]);
     }
-    length.ilog2().div_ceil(8) as usize
+
+    // Test they work to and from each other
+    #[test]
+    fn test_int_to_bytes_to_int() {
+        let int = 0x01020304;
+        let mut encoder = Vec::new();
+        super::int_to_bytes(&int, &mut encoder).unwrap();
+        assert_eq!(super::bytes_to_int(&encoder).unwrap(), int);
+    }
+
+    // Test that the int_to_bytes function writes exactly needed bytes amount of bytes
+    #[test]
+    fn test_int_to_bytes_needed_bytes() {
+        let int = 0x01020304;
+        let mut encoder = Vec::new();
+        super::int_to_bytes(&int, &mut encoder).unwrap();
+        assert_eq!(encoder.len(), needed_bytes(int) as usize);
+    }
 }
