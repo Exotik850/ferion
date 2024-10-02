@@ -35,7 +35,11 @@ impl Serializer {
         Ok(())
     }
 
-    pub fn serialize_entry<T: ?Sized + Serialize>(&mut self, key: &str, value: &T) -> Result<(), SerializeError> {
+    pub fn serialize_entry<T: ?Sized + Serialize>(
+        &mut self,
+        key: &str,
+        value: &T,
+    ) -> Result<(), SerializeError> {
         let mut sized = SizedSerializer::new(self);
         sized.serialize_key(key)?;
         value.serialize(&mut sized.temp)?;
@@ -52,8 +56,10 @@ pub struct SizedSerializer<'a> {
 mod test {
     use std::collections::HashMap;
 
+    use serde::Deserialize;
+
     use super::{to_bytes, Serialize};
-    use crate::{from_bytes, RionObject};
+    use crate::RionObject;
 
     #[test]
     fn test_serialize_bool() {
@@ -76,6 +82,41 @@ mod test {
 
         assert_eq!(object, test_object);
         // println!("{:?}", object);
+    }
+
+    #[test]
+    fn test_nested_object_serialization() {
+        #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+        struct NestedObject {
+            value: Option<Box<NestedObject>>,
+            data: String,
+        }
+
+        fn create_nested(depth: usize) -> NestedObject {
+            if depth == 0 {
+                NestedObject {
+                    value: None,
+                    data: "leaf".to_string(),
+                }
+            } else {
+                NestedObject {
+                    value: Some(Box::new(create_nested(depth - 1))),
+                    data: format!("level {}", depth),
+                }
+            }
+        }
+
+        for depth in 1..=100 {
+            let obj = create_nested(depth);
+            match to_bytes(&obj) {
+                Ok(bytes) => match crate::from_bytes::<NestedObject>(&bytes) {
+                    Ok(decoded) if decoded == obj => println!("Success at depth {depth}"),
+                    Ok(decoded) => panic!("Failed at depth {depth}: {decoded:?}"),
+                    Err(e) => panic!("Failed at depth {depth}: {e:?} {bytes:x?}"),
+                },
+                Err(e) => panic!("Failed at depth {}: {:?}", depth, e),
+            }
+        }
     }
 
     #[test]
@@ -154,7 +195,7 @@ mod test {
 
     #[test]
     fn test_serialize_nested_objects() {
-        #[derive(Serialize)]
+        #[derive(Serialize, Deserialize, PartialEq, Debug)]
         struct NestedObj {
             obj: std::collections::HashMap<String, String>,
         }
@@ -172,6 +213,8 @@ mod test {
                 0x65, b'v', b'a', b'l', b'u', b'e', // Value "value"
             ]
         );
+
+        assert_eq!(crate::from_bytes::<NestedObj>(&result).unwrap(), obj);
     }
 
     #[test]
@@ -201,7 +244,7 @@ pub fn to_bytes<T>(value: &T) -> Result<Vec<u8>, SerializeError>
 where
     T: RionSerialize,
 {
-    let mut serializer = Serializer { output: Vec::new() };
+    let mut serializer = Serializer::new();
     value.serialize(&mut serializer)?;
     Ok(serializer.output)
 }
@@ -535,6 +578,7 @@ impl SerializeMap for SizedSerializer<'_> {
         // key.serialize(&mut self.temp)
         let initial_len = self.temp.output.len();
         key.serialize(&mut self.temp)?;
+        assert!(self.temp.output.len() > initial_len);
         let lead = self.temp.output[initial_len]; // Guaranteed to have at least one byte written
         let lead_byte = LeadByte::try_from(lead)?;
         // If the first byte is not a Key field, throw an error
@@ -586,7 +630,9 @@ impl<'a> SizedSerializer<'a> {
             .output
             .push(type_byte << 4 | length_length as u8);
         let ll = total_len as u64;
+        let orig = self.output.output.len();
         crate::int_to_bytes(&ll, &mut self.output.output)?;
+        assert_eq!(self.output.output.len() - orig, length_length);
         self.output.output.extend(self.temp.output);
         Ok(())
     }
