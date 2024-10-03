@@ -1,5 +1,5 @@
-mod deserializer;
-mod serializer;
+mod de;
+mod ser;
 
-pub use deserializer::{from_bytes, DeserializeError, Deserializer};
-pub use serializer::{to_bytes, Serializer};
+pub use de::*;
+pub use ser::*;
