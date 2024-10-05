@@ -39,10 +39,11 @@ fn get_header(data: &[u8]) -> Result<(LeadByte, &[u8], &[u8])> {
             format!("Not enough data in {rest:x?} for length_length {length_length}").into(),
         );
     }
-    Ok((lead, &rest[..length_length], &rest[length_length..]))
+    let (data, rest) = rest.split_at(length_length);
+    Ok((lead, data, rest))
 }
 
-fn bytes_to_int(bytes: &[u8]) -> Result<u64> {
+fn bytes_to_uint(bytes: &[u8]) -> Result<u64> {
     match bytes.len() {
         0..=8 => Ok(bytes.iter().fold(0u64, |acc, &b| acc << 8 | b as u64)),
         _ => Err("Too many bytes to convert to u64".into()),
@@ -66,10 +67,10 @@ fn int_to_bytes(int: &u64, w: &mut impl std::io::Write) -> std::io::Result<()> {
 /// Returns the lead byte, the length of the data, and the remaining data
 fn get_normal_header(data: &[u8]) -> Result<(LeadByte, usize, &[u8])> {
     let (lead, length, rest) = get_header(data)?;
-    let types::RionFieldType::Normal(_) = lead.field_type() else {
+    if !lead.is_normal() {
         return Err("Expected a Normal encoded field".into());
     };
-    let data_len = bytes_to_int(length)?;
+    let data_len = bytes_to_uint(length)?;
     let data_len: usize = data_len.try_into()?;
     if data_len > rest.len() {
         return Err(format!(
@@ -104,7 +105,7 @@ mod int_cast_tests {
     #[test]
     fn test_bytes_to_int() {
         let bytes = [0x01, 0x02, 0x03, 0x04];
-        assert_eq!(super::bytes_to_int(&bytes).unwrap(), 0x01020304);
+        assert_eq!(super::bytes_to_uint(&bytes).unwrap(), 0x01020304);
     }
 
     #[test]
@@ -121,7 +122,7 @@ mod int_cast_tests {
         let int = 0x01020304;
         let mut encoder = Vec::new();
         super::int_to_bytes(&int, &mut encoder).unwrap();
-        assert_eq!(super::bytes_to_int(&encoder).unwrap(), int);
+        assert_eq!(super::bytes_to_uint(&encoder).unwrap(), int);
     }
 
     // Test that the int_to_bytes function writes exactly needed bytes amount of bytes

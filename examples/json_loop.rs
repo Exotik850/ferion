@@ -1,9 +1,6 @@
 use ferion::{from_bytes, to_bytes};
 use flate2::{write::ZlibEncoder, Compression};
-use std::{
-    io::Write,
-    time::Instant,
-};
+use std::{io::Write, time::Instant};
 
 fn main() {
     let mut input = String::new();
@@ -51,6 +48,12 @@ fn main() {
                 continue;
             }
         };
+        if rion_decoded != json {
+            println!("Warning: Decoded RION does not match the original JSON");
+            println!("  RION: {:?}", rion_decoded);
+            println!("  JSON: {:?}", json);
+            continue;
+        }
         let rion_de_time = rion_de_start.elapsed();
 
         // Measure JSON serialization and deserialization
@@ -70,11 +73,6 @@ fn main() {
         let pot_de_start = Instant::now();
         let _: serde_json::Value = pot::from_slice(&pot_bytes).unwrap();
         let pot_de_time = pot_de_start.elapsed();
-
-        if rion_decoded != json {
-            println!("Warning: Decoded RION does not match the original JSON");
-            continue;
-        }
 
         let json_byte_len = json_string.len();
         let rion_byte_len = rion_bytes.len();

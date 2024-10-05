@@ -1,15 +1,16 @@
 use super::*;
+use ::serde::{Deserialize, Serialize};
 use chrono::Utc;
 
 mod rion_field {
-    use types::LeadByte;
+    
 
     use super::*;
 
     #[test]
     fn test_tiny_field() {
-        let field = RionField::Tiny(LeadByte(0x11));
-        assert!(matches!(field, RionField::Tiny(_)));
+        let field = RionField::Bool(Some(true));
+        assert!(matches!(field, RionField::Bool(_)));
         assert!(!field.is_null());
     }
 
@@ -60,8 +61,8 @@ mod rion_field {
     fn test_from_bool() {
         let field_true = RionField::from(true);
         let field_false = RionField::from(false);
-        assert!(matches!(field_true, RionField::Tiny(_)));
-        assert!(matches!(field_false, RionField::Tiny(_)));
+        assert!(matches!(field_true, RionField::Bool(_)));
+        assert!(matches!(field_false, RionField::Bool(_)));
         assert_eq!(field_true.as_bytes(), &[]);
         assert_eq!(field_false.as_bytes(), &[]);
     }
@@ -170,4 +171,122 @@ mod rion_object {
 
         assert_eq!(outer_obj, decoded_obj);
     }
+}
+
+use crate::{from_bytes, to_bytes};
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+struct NumbersStruct {
+    u8: u8,
+    u16: u16,
+    u32: u32,
+    u64: u64,
+    i8: i8,
+    i16: i16,
+    i32: i32,
+    i64: i64,
+    f32: f32,
+    f64: f64,
+}
+
+#[test]
+fn test_numbers() {
+    let original = NumbersStruct {
+        u8: u8::MAX,
+        u16: u16::MAX,
+        u32: u32::MAX,
+        u64: u64::MAX,
+        i8: i8::MIN,
+        i16: i16::MIN,
+        i32: i32::MIN,
+        i64: i64::MIN,
+        f32: 1.0,
+        f64: 1.0,
+    };
+
+    let serialized = to_bytes(&original).unwrap();
+    let deserialized: NumbersStruct = from_bytes(&serialized).unwrap();
+
+    assert_eq!(original, deserialized);
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+enum EnumVariants {
+    Unit,
+    Tuple(u64),
+    Struct { arg: u64 },
+}
+
+#[test]
+fn test_enums() {
+    let variants = vec![
+        EnumVariants::Unit,
+        EnumVariants::Tuple(42),
+        EnumVariants::Struct { arg: 100 },
+    ];
+
+    for variant in variants {
+        let serialized = to_bytes(&variant).unwrap();
+        println!("{variant:?} : {:x?}", serialized);
+        let deserialized: EnumVariants = match from_bytes(&serialized) {
+            Ok(v) => v,
+            Err(e) => {
+                panic!("{e}");
+            }
+        };
+        assert_eq!(variant, deserialized);
+    }
+}
+
+#[test]
+fn test_option() {
+    let some_value = Some(42u64);
+    let none_value: Option<u64> = None;
+
+    let serialized_some = to_bytes(&some_value).unwrap();
+    let deserialized_some: Option<u64> = from_bytes(&serialized_some).unwrap();
+    assert_eq!(some_value, deserialized_some);
+
+    let serialized_none = to_bytes(&none_value).unwrap();
+    let deserialized_none: Option<u64> = from_bytes(&serialized_none).unwrap();
+    assert_eq!(none_value, deserialized_none);
+}
+
+#[test]
+fn test_vectors() {
+    let vec_u64 = vec![1, 2, 3, 4];
+    let vec_string = vec!["hello".to_string(), "world".to_string()];
+
+    let serialized_u64 = to_bytes(&vec_u64).unwrap();
+    let deserialized_u64: Vec<u64> = from_bytes(&serialized_u64).unwrap();
+    assert_eq!(vec_u64, deserialized_u64);
+
+    let serialized_string = to_bytes(&vec_string).unwrap();
+    let deserialized_string: Vec<String> = from_bytes(&serialized_string).unwrap();
+    assert_eq!(vec_string, deserialized_string);
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+struct NestedStruct {
+    field1: u32,
+    field2: String,
+    field3: Vec<EnumVariants>,
+}
+
+#[test]
+fn test_nested_structures() {
+    let nested = NestedStruct {
+        field1: 42,
+        field2: "Hello, world!".to_string(),
+        field3: vec![
+            EnumVariants::Unit,
+            EnumVariants::Tuple(100),
+            EnumVariants::Struct { arg: 200 },
+        ],
+    };
+
+    let serialized = to_bytes(&nested).unwrap();
+    let deserialized: NestedStruct = from_bytes(&serialized).unwrap();
+
+    assert_eq!(nested, deserialized);
 }

@@ -1,11 +1,11 @@
 use std::error::Error;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub struct LeadByte(pub(crate) u8); // (field type, length)
+pub struct LeadByte(RionFieldType, pub(crate) u8); // (field type, length)
 
 impl LeadByte {
     pub fn from_type(field_type: RionFieldType, length: u8) -> Self {
-        LeadByte(field_type.to_byte() << 4 | length)
+        LeadByte(field_type, length)
     }
 
     pub fn field_type(self) -> RionFieldType {
@@ -14,29 +14,33 @@ impl LeadByte {
 
     pub fn length(self) -> u8 {
         match self.field_type() {
-            RionFieldType::Tiny(_) => 0,
-            _ => self.0 & 0x0F,
+            RionFieldType::Bool(_) => 0,
+            _ => self.1 & 0x0F,
         }
     }
 
     pub fn is_null(self) -> bool {
         match self.field_type() {
-            RionFieldType::Tiny(lead) => lead.byte() & 0x0F == 0,
+            RionFieldType::Bool(None) => true,
             _ => self.length() == 0,
         }
     }
 
     pub fn is_short(self) -> bool {
-        self.length() < 15
+        self.field_type().is_short()
+    }
+
+    pub fn is_normal(self) -> bool {
+        self.field_type().is_normal()
     }
 
     pub const fn byte(self) -> u8 {
-        self.0
+        self.0.to_byte() | self.1
     }
 
     pub fn as_bool(self) -> Option<bool> {
         match self.field_type() {
-            RionFieldType::Tiny(lead) if lead.byte() & 0x0F != 0 => Some(lead.byte() & 0x0F == 2),
+            RionFieldType::Bool(lead) => lead,
             _ => None,
         }
     }
@@ -45,17 +49,17 @@ impl LeadByte {
 impl TryFrom<u8> for LeadByte {
     type Error = Box<dyn Error>;
     fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
-        RionFieldType::try_from(value)?;
-        Ok(LeadByte(value))
+        let field = RionFieldType::try_from(value)?;
+        Ok(LeadByte(field, value))
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Copy)]
+#[derive(Debug, Clone, PartialEq, Copy, Eq, Hash)]
 pub enum RionFieldType {
     Short(ShortRionType),
     Normal(NormalRionType),
+    Bool(Option<bool>),
     Extended,
-    Tiny(LeadByte),
 }
 
 impl From<ShortRionType> for RionFieldType {
@@ -161,13 +165,19 @@ impl RionFieldType {
     pub const INT64_NEGATIVE: u8 = 0x3;
     pub const UTF8_SHORT: u8 = 0x6;
     pub const KEY_SHORT: u8 = 0xE;
+    pub const BOOL: u8 = 0x1;
 
     pub const fn to_byte(self) -> u8 {
         match self {
             Self::Short(short) => short.to_byte(),
             Self::Normal(normal) => normal.to_byte(),
             Self::Extended => 0xF,
-            Self::Tiny(lead) => lead.byte(),
+            Self::Bool(lead) => {
+                0x10 | match lead {
+                    Some(a) => a as u8 + 1,
+                    None => 0,
+                }
+            }
         }
     }
 
@@ -177,6 +187,41 @@ impl RionFieldType {
             RionFieldType::Short(ShortRionType::Key) | RionFieldType::Normal(NormalRionType::Key)
         )
     }
+
+    pub fn is_str(&self) -> bool {
+        matches!(
+            self,
+            RionFieldType::Short(ShortRionType::UTF8) | RionFieldType::Normal(NormalRionType::UTF8)
+        )
+    }
+
+    pub fn is_normal_type(&self, ft: NormalRionType) -> bool {
+        matches!(self, RionFieldType::Normal(t) if *t == ft)
+    }
+
+    pub fn is_short_type(&self, ft: ShortRionType) -> bool {
+        matches!(self, RionFieldType::Short(t) if *t == ft)
+    }
+
+    pub fn is_short(&self) -> bool {
+        matches!(self, RionFieldType::Short(_))
+    }
+
+    pub fn is_normal(&self) -> bool {
+        matches!(self, RionFieldType::Normal(_))
+    }
+
+    pub fn is_extended(&self) -> bool {
+        matches!(self, RionFieldType::Extended)
+    }
+
+    pub fn is_tiny(&self) -> bool {
+        matches!(self, RionFieldType::Bool(_))
+    }
+
+    pub fn is_label(&self) -> bool {
+        self.is_key() || self.is_str()
+    }
 }
 
 impl TryFrom<u8> for RionFieldType {
@@ -184,8 +229,13 @@ impl TryFrom<u8> for RionFieldType {
     fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
         let type_bits = value & 0xF0;
         match type_bits >> 4 {
+            0x1 => match (value & 0x30) >> 4 {
+                0x0 => Ok(RionFieldType::Bool(None)),
+                0x1 => Ok(RionFieldType::Bool(Some(false))),
+                0x2 => Ok(RionFieldType::Bool(Some(true))),
+                _ => Err(format!("Invalid field type: {value:#X}").into()),
+            },
             0xF => Ok(RionFieldType::Extended),
-            0x1 => Ok(RionFieldType::Tiny(LeadByte(value))),
             0x0 | 0x5 | 0xA..=0xD => {
                 Ok(RionFieldType::Normal(NormalRionType::try_from(type_bits)?))
             }

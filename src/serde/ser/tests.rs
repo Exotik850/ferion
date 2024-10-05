@@ -3,7 +3,28 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use super::to_bytes;
-use crate::RionObject;
+use crate::{RionObject, Serializer};
+
+#[test]
+fn test_serialize_zero() {
+    let value = 0u8;
+    let serialized = to_bytes(&value).unwrap();
+    assert_eq!(serialized, vec![0x21, 0x00]);
+}
+
+#[test]
+fn test_serialize_signed_zero() {
+    let value = 0i8;
+    let serialized = to_bytes(&value).unwrap();
+    assert_eq!(serialized, vec![0x21, 0x00]);
+}
+
+#[test]
+fn test_serialize_negative() {
+    let value = -42i8;
+    let serialized = to_bytes(&value).unwrap();
+    assert_eq!(serialized, vec![0x31, 0x29]);
+}
 
 #[test]
 fn test_serialize_bool() {
@@ -50,7 +71,7 @@ fn test_nested_object_serialization() {
         }
     }
 
-    for depth in (1..=100).rev() {
+    for depth in 1..=100 {
         let obj = create_nested(depth);
         println!("Serializing depth {}", depth);
         match to_bytes(&obj) {
@@ -186,4 +207,161 @@ fn test_serialize_deeply_nested() {
     let decoded = crate::from_bytes::<DeepNested>(&result).unwrap();
     assert_eq!(decoded, nest);
     // println!("{:?}", result);
+}
+
+#[test]
+fn test_serialize_primitives() {
+    let mut serializer = Serializer::new();
+
+    // Test bool
+    true.serialize(&mut serializer).unwrap();
+    assert_eq!(serializer.output, vec![0x12]);
+    serializer.output.clear();
+
+    false.serialize(&mut serializer).unwrap();
+    assert_eq!(serializer.output, vec![0x11]);
+    serializer.output.clear();
+
+    // Test integers
+    42u8.serialize(&mut serializer).unwrap();
+    assert_eq!(serializer.output, vec![0x21, 42]);
+    serializer.output.clear();
+
+    1000u16.serialize(&mut serializer).unwrap();
+    assert_eq!(serializer.output, vec![0x22, 0x03, 0xE8]);
+    serializer.output.clear();
+
+    (-42i8).serialize(&mut serializer).unwrap();
+    assert_eq!(serializer.output, vec![0x31, 41]);
+    serializer.output.clear();
+
+    // Test floats
+    3.14f32.serialize(&mut serializer).unwrap();
+    assert_eq!(serializer.output, vec![0x44, 0x40, 0x48, 0xF5, 0xC3]);
+    serializer.output.clear();
+
+    0.0f32.serialize(&mut serializer).unwrap();
+    assert_eq!(serializer.output, vec![0x44, 0x00, 0x00, 0x00, 0x00]);
+    serializer.output.clear();
+
+    // Test char
+    'A'.serialize(&mut serializer).unwrap();
+    assert_eq!(serializer.output, vec![0x61, 0x41]);
+    serializer.output.clear();
+}
+
+#[test]
+fn test_serialize_strings() {
+    let mut serializer = Serializer::new();
+
+    // Short string
+    "Hello".serialize(&mut serializer).unwrap();
+    assert_eq!(serializer.output, vec![0x65, b'H', b'e', b'l', b'l', b'o']);
+    serializer.output.clear();
+
+    // Longer string
+    "This is a longer string that should use normal encoding"
+        .serialize(&mut serializer)
+        .unwrap();
+    assert_eq!(serializer.output[0], 0x51); // Normal UTF8 type
+    assert_eq!(
+        &serializer.output[2..],
+        b"This is a longer string that should use normal encoding"
+    );
+    serializer.output.clear();
+}
+
+#[test]
+fn test_serialize_option() {
+    let mut serializer = Serializer::new();
+
+    // Some value
+    Some(42u8).serialize(&mut serializer).unwrap();
+    assert_eq!(serializer.output, vec![0x21, 42]);
+    serializer.output.clear();
+
+    // None value
+    Option::<u8>::None.serialize(&mut serializer).unwrap();
+    assert_eq!(serializer.output, vec![0x00]); // TODO Make this have the correct field type
+    serializer.output.clear();
+}
+
+#[derive(Serialize)]
+struct TestStruct {
+    field1: u8,
+    field2: String,
+}
+
+#[test]
+fn test_serialize_struct() {
+    let mut serializer = Serializer::new();
+
+    let test_struct = TestStruct {
+        field1: 42,
+        field2: "test".to_string(),
+    };
+
+    test_struct.serialize(&mut serializer).unwrap();
+
+    // Check that it's an object
+    assert_eq!(serializer.output[0] & 0xF0, 0xC0);
+
+    // Check for field1
+    assert!(serializer
+        .output
+        .windows(9)
+        .any(|window| { window == [0xE6, b'f', b'i', b'e', b'l', b'd', b'1', 0x21, 42] }));
+
+    // Check for field2
+    assert!(serializer.output.windows(12).any(|window| {
+        window
+            == [
+                0xE6, b'f', b'i', b'e', b'l', b'd', b'2', 0x64, b't', b'e', b's', b't',
+            ]
+    }));
+}
+
+#[derive(Serialize)]
+enum TestEnum {
+    Unit,
+    Tuple(u8, String),
+    Struct { x: i32 },
+}
+
+#[test]
+fn test_serialize_enum() {
+    let mut serializer = Serializer::new();
+
+    // Unit variant
+    TestEnum::Unit.serialize(&mut serializer).unwrap();
+    assert_eq!(serializer.output, vec![0x64, b'U', b'n', b'i', b't']);
+    serializer.output.clear();
+
+    // Tuple variant
+    TestEnum::Tuple(42, "test".to_string())
+        .serialize(&mut serializer)
+        .unwrap();
+    assert_eq!(serializer.output[0] & 0xF0, 0xC0); // Object
+    println!("{:?}", serializer.output);
+    assert!(serializer
+        .output
+        .windows(7)
+        .any(|window| { window == [0xE5, b'T', b'u', b'p', b'l', b'e', 0xA1] }));
+    serializer.output.clear();
+
+    // Struct variant
+    TestEnum::Struct { x: -10 }
+        .serialize(&mut serializer)
+        .unwrap();
+    assert_eq!(serializer.output[0] & 0xF0, 0xC0); // Object
+    println!("{:?}", serializer.output);
+    assert!(serializer
+        .output
+        .windows(8)
+        .any(|window| { window == [0xE6, b'S', b't', b'r', b'u', b'c', b't', 0xC1] }));
+    assert!(serializer
+        .output
+        .windows(4)
+        .any(|window| { window == [0xE1, b'x', 0x31, 9] }));
+    serializer.output.clear();
 }
