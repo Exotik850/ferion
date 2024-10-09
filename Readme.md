@@ -6,7 +6,6 @@ Ferion is a high-performance Rust library for working with RION (Raw Internet Ob
 
 ## Features
 
-- **Blazing Fast**: Optimized for speed, Ferion outperforms JSON serialization in both encoding and decoding.
 - **Memory Efficient**: RION's compact binary format significantly reduces memory usage compared to text-based formats.
 - **Seamless Integration**: Works smoothly with Serde, allowing easy serialization of Rust structs and enums.
 - **Type Safety**: Leverages Rust's type system to ensure correctness at compile-time.
