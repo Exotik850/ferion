@@ -114,7 +114,7 @@ impl<T: Serialize> RionSerialize for T {
 }
 
 #[cfg(feature = "specialization")]
-macro_rules! impl_rion_serialize_const_array {
+macro_rules! impl_rion_const_array {
   ($($len:expr), +) => {
       $(
         impl RionSerialize for [u8; $len] {
@@ -128,7 +128,7 @@ macro_rules! impl_rion_serialize_const_array {
 }
 
 #[cfg(feature = "specialization")]
-impl_rion_serialize_const_array!(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+impl_rion_const_array!(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25 );
 
 #[cfg(feature = "specialization")]
 impl RionSerialize for &[u8] {
