@@ -17,7 +17,7 @@ Add Ferion to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ferion = "0.1.0"
+ferion = { git = "https://github.com/Exotik850/ferion.git" }
 ```
 
 ## Quick Start
@@ -61,4 +61,4 @@ We welcome contributions to Ferion! Here's how you can help:
 
 ## License
 
-Ferion is licensed under the MIT License, see [License](./License.md) for details
+Ferion is licensed under the MIT License, see [License](License) for details
