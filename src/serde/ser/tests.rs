@@ -45,14 +45,14 @@ fn test_nested_object_serialization() {
         } else {
             NestedObject {
                 value: Some(Box::new(create_nested(depth - 1))),
-                data: format!("level {}", depth),
+                data: format!("level {depth}"),
             }
         }
     }
 
     for depth in (1..=100).rev() {
         let obj = create_nested(depth);
-        println!("Serializing depth {}", depth);
+        println!("Serializing depth {depth}");
         match to_bytes(&obj) {
             Ok(bytes) => match crate::from_bytes::<NestedObject>(&bytes) {
                 Ok(decoded) if decoded == obj => println!("Success at depth {depth}"),
@@ -61,7 +61,7 @@ fn test_nested_object_serialization() {
                     panic!("Failed to deserialize depth {depth} with {obj:?}: {e:?} {bytes:x?}")
                 }
             },
-            Err(e) => panic!("Failed to serialize at depth {}: {:?}", depth, e),
+            Err(e) => panic!("Failed to serialize at depth {depth}: {e:?}"),
         }
     }
 }

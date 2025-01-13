@@ -28,7 +28,7 @@ mod test {
         array.add_element("value2");
 
         let encoded = array.encode();
-        println!("{:?}", encoded);
+        println!("{encoded:?}");
         let decoded_array = RionArray::from_slice(&encoded).unwrap();
 
         assert_eq!(array, decoded_array);
@@ -55,7 +55,7 @@ impl<'a> Default for RionArray<'a> {
 }
 
 impl<'a> RionArray<'a> {
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         RionArray {
             elements: Vec::new(),
         }
@@ -89,7 +89,7 @@ impl<'a> RionArray<'a> {
         self.elements.push(element.into());
     }
 
-    pub fn encode(&self) -> Vec<u8> {
+    #[must_use] pub fn encode(&self) -> Vec<u8> {
         if self.elements.is_empty() {
             return vec![
                 LeadByte::from_type(RionFieldType::Normal(NormalRionType::Array), 0).byte(),

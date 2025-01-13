@@ -36,14 +36,14 @@ impl Display for DeserializeError {
         match self {
             DeserializeError::Eod => write!(f, "end of available data!")?,
             DeserializeError::InvalidData(data) => write!(f, "invalid data! {data:?}")?,
-            DeserializeError::Custom(msg) => write!(f, "{}", msg)?,
+            DeserializeError::Custom(msg) => write!(f, "{msg}")?,
             DeserializeError::ExpectedNull => write!(f, "expected null")?,
             DeserializeError::DataLength(expected, actual, data) => write!(
                 f,
                 "expected data length {expected}, but got {actual} from {data:?}"
             )?,
             DeserializeError::InvalidType(expected, actual) => {
-                write!(f, "expected type {expected:?}, but got {actual:?}")?
+                write!(f, "expected type {expected:?}, but got {actual:?}")?;
             }
             DeserializeError::ExtraData => write!(f, "extra data found")?,
         }
@@ -236,7 +236,7 @@ impl<'de> Deserializer<'de> {
 }
 
 impl<'de> Deserializer<'de> {
-    pub fn new(data: &'de [u8]) -> Self {
+    #[must_use] pub fn new(data: &'de [u8]) -> Self {
         Self { data }
     }
 
@@ -305,7 +305,7 @@ impl<'de> Deserializer<'de> {
         T: TryFrom<RionField<'de>, Error: Display>,
     {
         let field = self.parse_next_field()?;
-        println!("{:?}", field);
+        println!("{field:?}");
         field
             .try_into()
             .map_err(|e: T::Error| DeserializeError::Custom(e.to_string()))

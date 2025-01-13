@@ -44,7 +44,7 @@ fn get_header(data: &[u8]) -> Result<(LeadByte, &[u8], &[u8])> {
 
 fn bytes_to_int(bytes: &[u8]) -> Result<u64> {
     match bytes.len() {
-        0..=8 => Ok(bytes.iter().fold(0u64, |acc, &b| acc << 8 | b as u64)),
+        0..=8 => Ok(bytes.iter().fold(0u64, |acc, &b| acc << 8 | u64::from(b))),
         _ => Err("Too many bytes to convert to u64".into()),
     }
 }

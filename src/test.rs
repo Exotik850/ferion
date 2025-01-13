@@ -84,7 +84,7 @@ mod rion_field {
     fn test_from_datetime() {
         let now = Utc::now();
         let field = RionField::from(now);
-        println!("{:?}", field);
+        println!("{field:?}");
         assert!(matches!(field, RionField::Short(_)));
         // assert_eq!(field.as_bytes().len(), 11);
     }
@@ -141,7 +141,7 @@ mod rion_object {
         obj.add_field("is_student", true);
 
         let encoded = obj.encode();
-        println!("{:?}", encoded);
+        println!("{encoded:?}");
         let decoded_obj = RionObject::from_slice(&encoded).unwrap();
 
         assert_eq!(obj, decoded_obj);
@@ -165,7 +165,7 @@ mod rion_object {
         outer_obj.add_field("n", inner_obj);
 
         let encoded = outer_obj.encode();
-        println!("{:x?}", encoded);
+        println!("{encoded:x?}");
         let decoded_obj = RionObject::from_slice(&encoded).unwrap();
 
         assert_eq!(outer_obj, decoded_obj);

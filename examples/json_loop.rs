@@ -19,7 +19,7 @@ fn main() {
         if let Some(path) = input.strip_prefix("file:") {
             let path = path.trim();
             let Ok(content) = std::fs::read_to_string(path) else {
-                println!("Failed to read file: {}", path);
+                println!("Failed to read file: {path}");
                 continue;
             };
             input = content;
@@ -27,7 +27,7 @@ fn main() {
         let json: serde_json::Value = match serde_json::from_str(input.trim()) {
             Ok(json) => json,
             Err(e) => {
-                println!("Invalid JSON: {}", e);
+                println!("Invalid JSON: {e}");
                 continue;
             }
         };
@@ -37,7 +37,7 @@ fn main() {
         let rion_bytes = match to_bytes(&json) {
             Ok(bytes) => bytes,
             Err(e) => {
-                println!("Failed to convert JSON to RION bytes: {}", e);
+                println!("Failed to convert JSON to RION bytes: {e}");
                 continue;
             }
         };
@@ -47,7 +47,7 @@ fn main() {
         let rion_decoded: serde_json::Value = match from_bytes(&rion_bytes) {
             Ok(decoded) => decoded,
             Err(e) => {
-                println!("Failed to decode RION bytes: {}", e);
+                println!("Failed to decode RION bytes: {e}");
                 continue;
             }
         };
@@ -81,19 +81,19 @@ fn main() {
         let pot_byte_len = pot_bytes.len();
 
         println!("Byte lengths:");
-        println!("  RION: {}", rion_byte_len);
-        println!("  JSON: {}", json_byte_len);
-        println!("  POT:  {}", pot_byte_len);
+        println!("  RION: {rion_byte_len}");
+        println!("  JSON: {json_byte_len}");
+        println!("  POT:  {pot_byte_len}");
 
         println!("\nSerialization times:");
-        println!("  RION: {:?}", rion_ser_time);
-        println!("  JSON: {:?}", json_ser_time);
-        println!("  POT:  {:?}", pot_ser_time);
+        println!("  RION: {rion_ser_time:?}");
+        println!("  JSON: {json_ser_time:?}");
+        println!("  POT:  {pot_ser_time:?}");
 
         println!("\nDeserialization times:");
-        println!("  RION: {:?}", rion_de_time);
-        println!("  JSON: {:?}", json_de_time);
-        println!("  POT:  {:?}", pot_de_time);
+        println!("  RION: {rion_de_time:?}");
+        println!("  JSON: {json_de_time:?}");
+        println!("  POT:  {pot_de_time:?}");
 
         println!("\nRatios (compared to JSON):");
         println!("  RION: {:.2}", rion_byte_len as f64 / json_byte_len as f64);

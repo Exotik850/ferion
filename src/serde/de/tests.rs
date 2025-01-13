@@ -19,7 +19,7 @@ use super::*;
             0xC1, 0x0A, 0xE3, b'K', b'e', b'y', 0x65, b'V', b'a', b'l', b'u', b'e',
         ];
         let map: std::collections::HashMap<String, String> = from_bytes(&data).unwrap();
-        println!("{:?}", map);
+        println!("{map:?}");
         assert_eq!(map.get("Key").unwrap(), "Value");
     }
 
@@ -158,5 +158,5 @@ use super::*;
     fn test_deserialize_wrong_option() {
         let data = vec![0xE5, b'A', b'l', b'i', b'c', b'e'];
         let result: Result<Option<i32>, _> = from_bytes(&data);
-        assert!(result.is_err())
+        assert!(result.is_err());
     }

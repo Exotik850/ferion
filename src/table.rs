@@ -217,10 +217,10 @@ impl<'a> RionTable<'a> {
         // First field is Int64Positive = m = number of rows
         let (field, mut rest) = RionField::parse(rest)?;
         let RionField::Short(short) = field else {
-            return Err(format!("Expected a short field, found {:?}", field).into());
+            return Err(format!("Expected a short field, found {field:?}").into());
         };
         let Some(m) = short.as_pos_int() else {
-            return Err(format!("Expected a positive integer, found {:?}", short).into());
+            return Err(format!("Expected a positive integer, found {short:?}").into());
         };
         let mut column_names = Vec::new();
         // Next n Key/KeyShorts = Column names
@@ -243,7 +243,7 @@ impl<'a> RionTable<'a> {
             }
             column_names.push(field.to_data().unwrap());
         };
-        println!("first_object: {:?}", first_object);
+        println!("first_object: {first_object:?}");
         if column_names.is_empty() || m == 0 {
             return Ok((
                 RionTable {
@@ -258,14 +258,13 @@ impl<'a> RionTable<'a> {
         let data_len = m * column_names.len() as u64;
         if data_len > length as u64 {
             return Err(format!(
-                "Not enough data for rows, expected {}, found {}",
-                data_len, length
+                "Not enough data for rows, expected {data_len}, found {length}"
             )
             .into());
         }
         let mut rows = Vec::with_capacity((data_len) as usize);
         rows.push(first_object);
-        for _ in 0..data_len - (!column_names.is_empty() as u64) {
+        for _ in 0..data_len - u64::from(!column_names.is_empty()) {
             let (field, new_rest) = RionField::parse(rest)?;
             rest = new_rest;
             rows.push(field);

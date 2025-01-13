@@ -1,4 +1,4 @@
-use crate::{bytes_to_int, get_header, int_to_bytes, needed_bytes_usize, types::*, Result};
+use crate::{bytes_to_int, get_header, int_to_bytes, needed_bytes_usize, types::{LeadByte, NormalRionType, RionFieldType, ShortRionType}, Result};
 use chrono::{DateTime, Datelike, Timelike, Utc};
 use core::str;
 use std::{borrow::Cow, error::Error};
@@ -12,9 +12,7 @@ pub struct ShortField<'a> {
 impl<'a> ShortField<'a> {
     pub fn new(field_type: ShortRionType, data: &'a [u8]) -> Self {
         let data_len = data.len() as u8;
-        if data_len > 15 {
-            panic!("Data too large for short field");
-        }
+        assert!(data_len <= 15, "Data too large for short field");
         ShortField {
             field_type,
             data: data.into(),
@@ -118,9 +116,7 @@ pub struct NormalField<'a> {
 
 impl<'a> NormalField<'a> {
     pub fn new(field_type: NormalRionType, data: &'a [u8]) -> Self {
-        if needed_bytes_usize(data.len()) > 15 {
-            panic!("Data too large for normal field");
-        }
+        assert!(needed_bytes_usize(data.len()) <= 15, "Data too large for normal field");
         NormalField {
             field_type,
             data: data.into(),
@@ -199,11 +195,11 @@ pub enum RionField<'a> {
 }
 
 impl<'a> RionField<'a> {
-    pub fn expect<T: From<Self>>(self) -> T {
+    #[must_use] pub fn expect<T: From<Self>>(self) -> T {
         self.into()
     }
 
-    pub fn key(key: &'a [u8]) -> Self {
+    #[must_use] pub fn key(key: &'a [u8]) -> Self {
         if key.len() < 16 {
             RionField::Short(ShortField {
                 field_type: ShortRionType::Key,
@@ -217,38 +213,38 @@ impl<'a> RionField<'a> {
         }
     }
 
-    pub fn key_str(key: &'a str) -> Self {
+    #[must_use] pub fn key_str(key: &'a str) -> Self {
         Self::key(key.as_bytes())
     }
 
-    pub fn bytes(data: &'a [u8]) -> Self {
+    #[must_use] pub fn bytes(data: &'a [u8]) -> Self {
         RionField::Normal(NormalField {
             field_type: NormalRionType::Bytes,
             data: data.into(),
         })
     }
 
-    pub fn f32(value: f32) -> Self {
+    #[must_use] pub fn f32(value: f32) -> Self {
         value.into()
     }
 
-    pub fn f64(value: f64) -> Self {
+    #[must_use] pub fn f64(value: f64) -> Self {
         value.into()
     }
 
-    pub fn int64(value: i64) -> Self {
+    #[must_use] pub fn int64(value: i64) -> Self {
         value.into()
     }
 
-    pub fn uint64(value: u64) -> Self {
+    #[must_use] pub fn uint64(value: u64) -> Self {
         value.into()
     }
 
-    pub fn bool(value: bool) -> Self {
+    #[must_use] pub fn bool(value: bool) -> Self {
         value.into()
     }
 
-    pub fn from_str(value: &'a str) -> Self {
+    #[must_use] pub fn from_str(value: &'a str) -> Self {
         value.into()
     }
 
@@ -293,7 +289,7 @@ impl<'a> RionField<'a> {
         Ok(field)
     }
 
-    pub fn is_key(&self) -> bool {
+    #[must_use] pub fn is_key(&self) -> bool {
         match self {
             RionField::Short(short) => short.field_type == ShortRionType::Key,
             RionField::Normal(normal) => normal.field_type == NormalRionType::Key,
@@ -301,7 +297,7 @@ impl<'a> RionField<'a> {
         }
     }
 
-    pub fn is_null(&self) -> bool {
+    #[must_use] pub fn is_null(&self) -> bool {
         match self {
             RionField::Tiny(lead) => lead.is_null(),
             RionField::Short(short) => short.is_null(),
@@ -309,7 +305,7 @@ impl<'a> RionField<'a> {
         }
     }
 
-    pub fn as_str(&self) -> Option<&str> {
+    #[must_use] pub fn as_str(&self) -> Option<&str> {
         match self {
             RionField::Short(short) => short.as_str(),
             RionField::Normal(normal) => normal.as_str(),
@@ -317,7 +313,7 @@ impl<'a> RionField<'a> {
         }
     }
 
-    pub fn as_bytes(&self) -> &[u8] {
+    #[must_use] pub fn as_bytes(&self) -> &[u8] {
         match self {
             RionField::Short(short) => short.as_bytes(),
             RionField::Normal(normal) => normal.as_bytes(),
@@ -326,7 +322,7 @@ impl<'a> RionField<'a> {
     }
 
     // Bytes needed to encode this field
-    pub fn needed_bytes(&self) -> usize {
+    #[must_use] pub fn needed_bytes(&self) -> usize {
         1 + match self {
             RionField::Short(short) => short.data.len(),
             RionField::Normal(normal) => {
@@ -337,7 +333,7 @@ impl<'a> RionField<'a> {
         }
     }
 
-    pub fn to_data(self) -> Option<Cow<'a, [u8]>> {
+    #[must_use] pub fn to_data(self) -> Option<Cow<'a, [u8]>> {
         // pub fn to_data(self) -> Option<&'a [u8]> {
         match self {
             RionField::Short(short) => Some(short.data),
@@ -346,21 +342,21 @@ impl<'a> RionField<'a> {
         }
     }
 
-    pub fn is_normal_type(&self, field_type: NormalRionType) -> bool {
+    #[must_use] pub fn is_normal_type(&self, field_type: NormalRionType) -> bool {
         match self {
             RionField::Normal(normal) => normal.field_type == field_type,
             _ => false,
         }
     }
 
-    pub fn is_short_type(&self, field_type: ShortRionType) -> bool {
+    #[must_use] pub fn is_short_type(&self, field_type: ShortRionType) -> bool {
         match self {
             RionField::Short(short) => short.field_type == field_type,
             _ => false,
         }
     }
 
-    pub fn field_type(&self) -> RionFieldType {
+    #[must_use] pub fn field_type(&self) -> RionFieldType {
         match self {
             RionField::Tiny(lead) => RionFieldType::Tiny(*lead),
             RionField::Short(short) => RionFieldType::Short(short.field_type),
@@ -451,7 +447,7 @@ impl From<DateTime<Utc>> for RionField<'_> {
 impl From<bool> for RionField<'_> {
     fn from(value: bool) -> Self {
         // add one since 0 is reserved for null
-        RionField::Tiny(LeadByte(0x10 | (value as u8 + 1)))
+        RionField::Tiny(LeadByte(0x10 | (u8::from(value) + 1)))
     }
 }
 
@@ -485,21 +481,18 @@ impl<'a> From<&'a str> for RionField<'a> {
 impl From<String> for RionField<'static> {
     fn from(value: String) -> Self {
         let value_len = value.len();
-        match value_len {
-            0..=15 => RionField::Short(ShortField {
-                field_type: ShortRionType::UTF8,
+        if let 0..=15 = value_len { RionField::Short(ShortField {
+            field_type: ShortRionType::UTF8,
+            data: value.into_bytes().into(),
+        }) } else {
+            let num_bytes = needed_bytes_usize(value_len);
+            if num_bytes > 15 {
+                println!("Warning: UTF-8 length field is too long, truncating to 15 bytes");
+            } // TODO handle this
+            RionField::Normal(NormalField {
+                field_type: NormalRionType::UTF8,
                 data: value.into_bytes().into(),
-            }),
-            _ => {
-                let num_bytes = needed_bytes_usize(value_len);
-                if num_bytes > 15 {
-                    println!("Warning: UTF-8 length field is too long, truncating to 15 bytes");
-                } // TODO handle this
-                RionField::Normal(NormalField {
-                    field_type: NormalRionType::UTF8,
-                    data: value.into_bytes().into(),
-                })
-            }
+            })
         }
     }
 }
@@ -546,7 +539,7 @@ impl TryFrom<RionField<'_>> for u64 {
         match value {
             RionField::Short(short) => short
                 .as_pos_int()
-                .ok_or_else(|| format!("Field is not a positive integer: {:?}", short).into()),
+                .ok_or_else(|| format!("Field is not a positive integer: {short:?}").into()),
             _ => Err("Field is not a positive integer".into()),
         }
     }
@@ -555,7 +548,7 @@ impl TryFrom<RionField<'_>> for u32 {
     type Error = Box<dyn Error>;
     fn try_from(value: RionField<'_>) -> std::result::Result<Self, Self::Error> {
         let value = u64::try_from(value)?;
-        if value > u32::MAX as u64 {
+        if value > u64::from(u32::MAX) {
             return Err(format!("Value ({value:?}) is too large for u32").into());
         }
         Ok(value as u32)
@@ -565,7 +558,7 @@ impl TryFrom<RionField<'_>> for u16 {
     type Error = Box<dyn Error>;
     fn try_from(value: RionField<'_>) -> std::result::Result<Self, Self::Error> {
         let value = u64::try_from(value)?;
-        if value > u16::MAX as u64 {
+        if value > u64::from(u16::MAX) {
             return Err(format!("Value ({value:?}) is too large for u16").into());
         }
         Ok(value as u16)
@@ -575,7 +568,7 @@ impl TryFrom<RionField<'_>> for u8 {
     type Error = Box<dyn Error>;
     fn try_from(value: RionField<'_>) -> std::result::Result<Self, Self::Error> {
         let value = u64::try_from(value)?;
-        if value > u8::MAX as u64 {
+        if value > u64::from(u8::MAX) {
             return Err(format!("Value ({value:?}) is too large for u8").into());
         }
         Ok(value as u8)
@@ -585,7 +578,7 @@ impl TryFrom<RionField<'_>> for i32 {
     type Error = Box<dyn Error>;
     fn try_from(value: RionField<'_>) -> std::result::Result<Self, Self::Error> {
         let value = i64::try_from(value)?;
-        if value < i32::MIN as i64 || value > i32::MAX as i64 {
+        if value < i64::from(i32::MIN) || value > i64::from(i32::MAX) {
             return Err(format!("Value ({value:?}) is too large for i32").into());
         }
         Ok(value as i32)
@@ -595,7 +588,7 @@ impl TryFrom<RionField<'_>> for i16 {
     type Error = Box<dyn Error>;
     fn try_from(value: RionField<'_>) -> std::result::Result<Self, Self::Error> {
         let value = i64::try_from(value)?;
-        if value < i16::MIN as i64 || value > i16::MAX as i64 {
+        if value < i64::from(i16::MIN) || value > i64::from(i16::MAX) {
             return Err(format!("Value ({value:?}) is too large for i16").into());
         }
         Ok(value as i16)
@@ -605,7 +598,7 @@ impl TryFrom<RionField<'_>> for i8 {
     type Error = Box<dyn Error>;
     fn try_from(value: RionField<'_>) -> std::result::Result<Self, Self::Error> {
         let value = i64::try_from(value)?;
-        if value < i8::MIN as i64 || value > i8::MAX as i64 {
+        if value < i64::from(i8::MIN) || value > i64::from(i8::MAX) {
             return Err(format!("Value ({value:?}) is too large for i8").into());
         }
         Ok(value as i8)
@@ -618,7 +611,7 @@ impl TryFrom<RionField<'_>> for f32 {
         match value {
             RionField::Short(short) => short
                 .as_f32()
-                .ok_or_else(|| format!("Field is not a f32: {:?}", short).into()),
+                .ok_or_else(|| format!("Field is not a f32: {short:?}").into()),
             _ => Err("Field is not a f32".into()),
         }
     }
@@ -630,7 +623,7 @@ impl TryFrom<RionField<'_>> for f64 {
         match value {
             RionField::Short(short) => short
                 .as_f64()
-                .ok_or_else(|| format!("Field is not a f64: {:?}", short).into()),
+                .ok_or_else(|| format!("Field is not a f64: {short:?}").into()),
             _ => Err("Field is not a f64".into()),
         }
     }
@@ -665,13 +658,13 @@ impl TryFrom<RionField<'_>> for String {
             RionField::Short(short) => {
                 let str = short
                     .as_str()
-                    .ok_or_else(|| format!("Field is not a string: {:?}", short))?;
+                    .ok_or_else(|| format!("Field is not a string: {short:?}"))?;
                 Ok(str.to_string())
             }
             RionField::Normal(normal) => {
                 let str = normal
                     .as_str()
-                    .ok_or_else(|| format!("Field is not a string: {:?}", normal))?;
+                    .ok_or_else(|| format!("Field is not a string: {normal:?}"))?;
                 Ok(str.to_string())
             }
             _ => Err("Field is not a string".into()),

@@ -22,7 +22,7 @@ impl<'a> Default for RionObject<'a> {
 
 impl<'a> RionObject<'a> {
     // Create a new RION object
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         RionObject {
             fields: HashMap::new(),
         }
@@ -65,7 +65,7 @@ impl<'a> RionObject<'a> {
     }
 
     // Encode the RION object to its binary representation
-    pub fn encode(&self) -> Vec<u8> {
+    #[must_use] pub fn encode(&self) -> Vec<u8> {
         let mut content = Vec::new();
         let mut fields = self.fields.iter().collect::<Vec<_>>();
         fields.sort_unstable_by_key(|f| f.0);

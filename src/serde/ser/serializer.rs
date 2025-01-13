@@ -25,7 +25,7 @@ impl Default for Serializer {
 }
 
 impl Serializer {
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self { output: Vec::new() }
     }
 
@@ -118,14 +118,14 @@ impl RionSerialize for Vec<u8> {
 impl std::fmt::Display for SerializeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SerializeError::Custom(msg) => write!(f, "{}", msg),
+            SerializeError::Custom(msg) => write!(f, "{msg}"),
             SerializeError::InvalidType(rion_field_type) => {
-                write!(f, "Invalid type: {:?}", rion_field_type)
+                write!(f, "Invalid type: {rion_field_type:?}")
             }
             SerializeError::LengthOverflow(len) => {
-                write!(f, "Length overflow: {}", len)
+                write!(f, "Length overflow: {len}")
             }
-            SerializeError::IoError(err) => write!(f, "IO Error: {}", err),
+            SerializeError::IoError(err) => write!(f, "IO Error: {err}"),
         }
     }
 }
